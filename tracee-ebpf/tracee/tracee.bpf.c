@@ -189,7 +189,8 @@ Copyright (C) Aqua Security inc.
 #define SECURITY_POST_READ_FILE         1030
 #define SOCKET_DUP                      1031
 #define HIDDEN_INODES                   1032
-#define MAX_EVENT_ID                    1033
+#define DIRECT_SPLICE_ACTOR             1033
+#define MAX_EVENT_ID                    1034
 
 #define NET_PACKET                      0
 #define DEBUG_NET_SECURITY_BIND         1
@@ -1686,6 +1687,88 @@ static __always_inline void* get_dentry_path_str(struct dentry* dentry)
 
     set_buf_off(STRING_BUF_IDX, buf_off);
     return &string_p->buf[buf_off];
+}
+
+struct mem_section ***mem_section_addr = (struct mem_section ***)0xffffffffabc45618;
+unsigned long *page_offset_base_addr = (unsigned long *)0xffffffffaae31f50;
+struct page **vmemmap_base_addr = (struct page **)0xffffffffaae31f40;
+
+#define SECTION_SIZE_BITS 27
+#define MAX_PHYSMEM_BITS 52
+#define SECTIONS_WIDTH		0
+#define SECTIONS_PGOFF		((sizeof(unsigned long)*8) - SECTIONS_WIDTH)
+#define SECTIONS_PGSHIFT	(SECTIONS_PGOFF * (SECTIONS_WIDTH != 0))
+#define SECTIONS_MASK		((1UL << SECTIONS_WIDTH) - 1)
+#define SECTIONS_PER_ROOT       (PAGE_SIZE / sizeof(struct mem_section))
+#define SECTION_ROOT_MASK	(SECTIONS_PER_ROOT - 1)
+#define SECTION_NR_TO_ROOT(sec)	((sec) / SECTIONS_PER_ROOT)
+#define PAGE_OFFSET page_offset_base // TODO: Get the global value
+#define SECTION_MAP_LAST_BIT		(1UL<<4) // TODO: Dynamic value - changed between 5.10.89 to 5.16.7
+#define SECTION_MAP_MASK		(~(SECTION_MAP_LAST_BIT-1))
+
+/* Helper macro to print out debug messages */
+#define bpf_printk(fmt, ...)                            \
+({                                                      \
+        char ____fmt[] = fmt;                           \
+        bpf_trace_printk(____fmt, sizeof(____fmt),      \
+                         ##__VA_ARGS__);                \
+})
+
+static __always_inline unsigned long my_page_to_section(struct page *p)
+{
+    unsigned long flags = READ_KERN(p->flags);
+	return (flags >> SECTIONS_PGSHIFT) & SECTIONS_MASK;
+}
+
+static __always_inline struct mem_section *my_nr_to_section(unsigned long nr)
+{
+    struct mem_section **mem_section = READ_KERN(*mem_section_addr);
+//#ifdef CONFIG_SPARSEMEM_EXTREME
+	if (!mem_section) // TODO: Get the global mem_section value
+		return NULL;
+//#endif
+    struct mem_section *section_root_array = READ_KERN(mem_section[SECTION_NR_TO_ROOT(nr)]);
+	if (!section_root_array)
+		return NULL;
+	return &section_root_array[nr & SECTION_ROOT_MASK];
+}
+
+static __always_inline struct page *my_section_mem_map_addr(struct mem_section *section)
+{
+	unsigned long map = READ_KERN(section->section_mem_map);
+	map &= SECTION_MAP_MASK;
+	return (struct page *)map;
+}
+
+static __always_inline unsigned long sparsemem_page_to_pfn(struct page *p) {
+    unsigned long sec = my_page_to_section(p);
+    struct page *sec_mem_map = my_section_mem_map_addr(my_nr_to_section(sec));
+    return (unsigned long) (p - sec_mem_map);
+}
+
+static __always_inline unsigned long sparsemem_vmemmap_page_to_pfn(struct page *p) {
+    struct page *my_vmemmap_base = READ_KERN(*vmemmap_base_addr);
+    bpf_printk("vmemap address: %lx, value %lx", vmemmap_base_addr, my_vmemmap_base);
+    bpf_printk("size of page: %x", sizeof(struct page));
+    return (unsigned long)(p - my_vmemmap_base);
+}
+
+static __always_inline unsigned long calculate_pfn_physical_address(unsigned long pfn) {
+    return pfn << PAGE_SHIFT;
+}
+
+static __always_inline void * x86_64_pfn_physical_address_to_virtual_address(unsigned long pfn_phys_addr) {
+    unsigned long poffset_base = READ_KERN(*page_offset_base_addr);
+    bpf_printk("Virtual addresses offsets: %lx", poffset_base);
+    return (void *)(pfn_phys_addr + poffset_base);
+}
+
+static __always_inline void * x86_64_page_virtual_address(struct page *p) {
+    unsigned long pfn = sparsemem_vmemmap_page_to_pfn(p);
+    unsigned long pfn_phys_addr = calculate_pfn_physical_address(pfn);
+    void *page_addr = x86_64_pfn_physical_address_to_virtual_address(pfn_phys_addr);
+    bpf_printk("Page resolving: pfn %lx in physical address %lx is located at %lx", pfn, pfn_phys_addr, page_addr);
+    return page_addr;
 }
 
 static __always_inline int events_perf_submit(event_data_t *data, u32 id, long ret)
@@ -3841,6 +3924,50 @@ static __always_inline int do_vfs_write_writev_tail(struct pt_regs *ctx, u32 eve
         // Send file data
         bpf_tail_call(ctx, &prog_array, TAIL_SEND_BIN);
     }
+    return 0;
+}
+
+SEC("kprobe/direct_splice_actor")
+int BPF_KPROBE(trace_direct_splice_actor)
+{
+    event_data_t data = {};
+        if (!init_event_data(&data, ctx))
+            return 0;
+
+    args_t args = {};
+    args.args[0] = PT_REGS_PARM1(ctx);
+    args.args[1] = PT_REGS_PARM2(ctx);
+
+    struct splice_desc *out_file_desc = (struct splice_desc*) args.args[1];
+    struct file *out_file = READ_KERN(out_file_desc->u.file);
+    loff_t *out_file_position_addr = READ_KERN(out_file_desc->opos);
+    loff_t out_file_position = READ_KERN(*out_file_position_addr);
+    void *file_path = get_path_str(GET_FIELD_ADDR(out_file->f_path));
+
+    struct pipe_inode_info *pipe = (struct pipe_inode_info*) args.args[0];
+    bpf_printk("Actor: pipe address is %lx", pipe);
+    struct pipe_buffer *bufs = READ_KERN(pipe->bufs);
+    bpf_printk("Actor: pipe buffers address is %lx", bufs);
+    int tail = READ_KERN(pipe->tail);
+    int ring_size = READ_KERN(pipe->ring_size);
+    bpf_printk("Actor: buffer tail is %d and ring size is %d", tail, ring_size);
+    struct pipe_buffer read_buffer = READ_KERN(bufs[tail & (ring_size - 1)]);
+    bpf_printk("Actor: read pipe buffer address is %lx", &bufs);
+    struct page *read_page = read_buffer.page;
+    unsigned int in_page_data_offset = READ_KERN(read_buffer.offset);
+    unsigned int in_page_data_len = READ_KERN(read_buffer.len);
+
+    u8 header[FILE_MAGIC_HDR_SIZE];
+    bpf_printk("Actor: page address is %lx and offset is %d", read_page, in_page_data_offset);
+    void *data_address = x86_64_page_virtual_address(read_page) + in_page_data_offset;
+    bpf_probe_read(header, FILE_MAGIC_HDR_SIZE, data_address);
+
+    save_str_to_buf(&data, file_path, 0);
+    save_to_submit_buf(&data, &out_file_position, sizeof(loff_t*), 1);
+    save_to_submit_buf(&data, &in_page_data_offset, sizeof(unsigned int), 2);
+    save_to_submit_buf(&data, &in_page_data_len, sizeof(unsigned int), 3);
+    save_bytes_to_buf(&data, header, FILE_MAGIC_HDR_SIZE, 4);
+    events_perf_submit(&data, DIRECT_SPLICE_ACTOR, 0);
     return 0;
 }
 
