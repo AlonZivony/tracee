@@ -1689,10 +1689,19 @@ static __always_inline void* get_dentry_path_str(struct dentry* dentry)
     return &string_p->buf[buf_off];
 }
 
+#ifdef CONFIG_FLATMEM
+struct page **mem_map = (struct page**)0x0;
+#define ARCH_PFN_OFFSET 0
+
+#elif defined(CONFIG_SPARSEMEM_VMEMMAP)
+struct page **vmemmap_base_addr = (struct page **)0xffffffffaae31f40;
+#define SECTION_MAP_LAST_BIT		(1UL<<4) // TODO: Dynamic value - changed between 5.10.89 to 5.16.7
+#define SECTION_MAP_MASK		(~(SECTION_MAP_LAST_BIT-1))
+
+
+#elif defined(CONFIG_SPARSEMEM)
 struct mem_section ***mem_section_addr = (struct mem_section ***)0xffffffffabc45618;
 unsigned long *page_offset_base_addr = (unsigned long *)0xffffffffaae31f50;
-struct page **vmemmap_base_addr = (struct page **)0xffffffffaae31f40;
-
 #define SECTION_SIZE_BITS 27
 #define MAX_PHYSMEM_BITS 52
 #define SECTIONS_WIDTH		0
@@ -1703,8 +1712,12 @@ struct page **vmemmap_base_addr = (struct page **)0xffffffffaae31f40;
 #define SECTION_ROOT_MASK	(SECTIONS_PER_ROOT - 1)
 #define SECTION_NR_TO_ROOT(sec)	((sec) / SECTIONS_PER_ROOT)
 #define PAGE_OFFSET page_offset_base // TODO: Get the global value
-#define SECTION_MAP_LAST_BIT		(1UL<<4) // TODO: Dynamic value - changed between 5.10.89 to 5.16.7
-#define SECTION_MAP_MASK		(~(SECTION_MAP_LAST_BIT-1))
+
+#elif defined(CONFIG_DISCONTMEM)
+u8 **section_to_node_table = (u8 **)0x0;
+struct pglist_data **node_data = (struct pglist_data **)0x0;
+
+#endif // COFING_DISCONTMEM
 
 /* Helper macro to print out debug messages */
 #define bpf_printk(fmt, ...)                            \
@@ -1713,6 +1726,15 @@ struct page **vmemmap_base_addr = (struct page **)0xffffffffaae31f40;
         bpf_trace_printk(____fmt, sizeof(____fmt),      \
                          ##__VA_ARGS__);                \
 })
+
+static __always_inline int my_page_to_nid(struct page *p) {
+    return (int)section_to_node_table[my_page_to_section(p)];
+}
+
+{
+    unsigned long flags = READ_KERN(p->flags);
+	return (flags >> SECTIONS_PGSHIFT) & SECTIONS_MASK;
+}
 
 static __always_inline unsigned long my_page_to_section(struct page *p)
 {
@@ -1723,10 +1745,10 @@ static __always_inline unsigned long my_page_to_section(struct page *p)
 static __always_inline struct mem_section *my_nr_to_section(unsigned long nr)
 {
     struct mem_section **mem_section = READ_KERN(*mem_section_addr);
-//#ifdef CONFIG_SPARSEMEM_EXTREME
-	if (!mem_section) // TODO: Get the global mem_section value
-		return NULL;
-//#endif
+    if get_kconfig(SPARSEMEM_EXTREME) {
+        if (!mem_section) // TODO: Get the global mem_section value
+            return NULL;
+    }
     struct mem_section *section_root_array = READ_KERN(mem_section[SECTION_NR_TO_ROOT(nr)]);
 	if (!section_root_array)
 		return NULL;
@@ -1738,6 +1760,15 @@ static __always_inline struct page *my_section_mem_map_addr(struct mem_section *
 	unsigned long map = READ_KERN(section->section_mem_map);
 	map &= SECTION_MAP_MASK;
 	return (struct page *)map;
+}
+
+static __always_inline unsigned long flatmem_page_to_pfn(struct page *p) {
+    return (unsigned long) ((p - mem_map) + ARCH_PFN_OFFSET);
+}
+
+static __always_inline unsigned long discontmem_page_to_pfn(struct page *p) {
+    struct pglist_data * __pgdat = section_to_node_table[my_page_to_nid(p)];
+    return (unsigned long) ((p - __pgdat->node_mem_map) + __pgdat->node_start_pfn);
 }
 
 static __always_inline unsigned long sparsemem_page_to_pfn(struct page *p) {
@@ -1763,13 +1794,35 @@ static __always_inline void * x86_64_pfn_physical_address_to_virtual_address(uns
     return (void *)(pfn_phys_addr + poffset_base);
 }
 
-static __always_inline void * x86_64_page_virtual_address(struct page *p) {
-    unsigned long pfn = sparsemem_vmemmap_page_to_pfn(p);
+static __always_inline unsigned long generic_page_to_pfn(struct page *p) {
+    if get_kconfig(FLATMEM) {
+        return flatmem_page_to_pfn(p);
+    } elif get_kconfig(DISCONTMEM) {
+        return discontmem_page_to_pfn(p);
+    } elif get_kconfig(SPARSEMEM_VMEMMAP) {
+        return sparsemem_vmemmap_page_to_pfn(p);
+    } elif get_kconfig(SPARSEMEM) {
+        return sparsemem_page_to_pfn(p);
+    } else {
+        bpf_prink("Unsupported physical memory model");
+        return -1;
+    }
+}
+
+#ifdef bpf_target_x86
+static __always_inline void * page_virtual_address(struct page *p) {
+    unsigned long pfn = generic_page_to_pfn(p);
     unsigned long pfn_phys_addr = calculate_pfn_physical_address(pfn);
     void *page_addr = x86_64_pfn_physical_address_to_virtual_address(pfn_phys_addr);
     bpf_printk("Page resolving: pfn %lx in physical address %lx is located at %lx", pfn, pfn_phys_addr, page_addr);
     return page_addr;
 }
+
+#elif defined(bpf_target_arm64)
+static __always_inline void * page_virtual_address(struct page *p) {
+}
+
+#endif
 
 static __always_inline int events_perf_submit(event_data_t *data, u32 id, long ret)
 {
@@ -3959,7 +4012,7 @@ int BPF_KPROBE(trace_direct_splice_actor)
 
     u8 header[FILE_MAGIC_HDR_SIZE];
     bpf_printk("Actor: page address is %lx and offset is %d", read_page, in_page_data_offset);
-    void *data_address = x86_64_page_virtual_address(read_page) + in_page_data_offset;
+    void *data_address = page_virtual_address(read_page) + in_page_data_offset;
     bpf_probe_read(header, FILE_MAGIC_HDR_SIZE, data_address);
 
     save_str_to_buf(&data, file_path, 0);
