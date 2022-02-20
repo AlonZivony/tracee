@@ -448,12 +448,6 @@ const (
 	configCgroupIdFilter
 )
 
-// Custom KernelConfigOption's to extend kernel_config helper support
-// Add here all kconfig variables used within tracee.bpf.c
-const (
-	CONFIG_ARCH_HAS_SYSCALL_WRAPPER helpers.KernelConfigOption = iota + helpers.CUSTOM_OPTION_START
-)
-
 // an enum that specifies the index of a function to be used in a bpf tail call
 // tail function indexes should match defined values in ebpf code
 const (
@@ -501,27 +495,29 @@ func (t *Tracee) populateBPFMaps() error {
 		return err
 	}
 
-	// add here all kconfig variables used within tracee.bpf.c
-	var value helpers.KernelConfigOptionValue
-	key := CONFIG_ARCH_HAS_SYSCALL_WRAPPER
-	keyString := "CONFIG_ARCH_HAS_SYSCALL_WRAPPER"
-	if err = t.config.KernelConfig.AddCustomKernelConfig(key, keyString); err != nil {
-		return err
-	}
+	kconfigValues := loadKconfigValues(t.config.KernelConfig, t.config.Debug)
 
-	// re-load kconfig and get just added kconfig option values
-	if err = t.config.KernelConfig.LoadKernelConfig(); err != nil { // invalid kconfig file: assume values then
-		if t.config.Debug {
-			fmt.Fprintf(os.Stderr, "KConfig: warning: assuming kconfig values, might have unexpected behavior\n")
+	for key, value := range kconfigValues {
+		err = bpfKConfigMap.Update(unsafe.Pointer(&key), unsafe.Pointer(&value))
+		if err != nil {
+			return err
 		}
-		value = helpers.BUILTIN // assume CONFIG_ARCH_HAS_SYSCALL_WRAPPER is a BUILTIN option
-	} else {
-		value = t.config.KernelConfig.GetValue(key) // undefined, builtin OR module
 	}
 
-	err = bpfKConfigMap.Update(unsafe.Pointer(&key), unsafe.Pointer(&value))
+	// Initialize map for defined consts of the kernel in use by the BPF programs
+
+	bpfConstsMap, err := t.bpfModule.GetMap("consts_map") // u32, u32
 	if err != nil {
 		return err
+	}
+
+	osInfo, err := helpers.GetOSInfo()
+	if err != nil {
+		return err
+	}
+
+	for key, value := range calculateKernelConsts(kconfigValues, make(map[KernelGlobalsKey]int), osInfo) {
+		err = bpfConstsMap.Update(unsafe.Pointer(&key), unsafe.Pointer(&value))
 	}
 
 	// Initialize config and pids maps
