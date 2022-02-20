@@ -1845,6 +1845,7 @@ static __always_inline unsigned long generic_page_to_pfn(struct page *p) {
 }
 
 #ifdef bpf_target_x86
+// This is the 64bit implementation
 static __always_inline void * page_virtual_address(struct page *p) {
     unsigned long pfn = generic_page_to_pfn(p);
     unsigned long pfn_phys_addr = calculate_pfn_physical_address(pfn);
