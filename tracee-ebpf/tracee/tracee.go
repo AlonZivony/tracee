@@ -26,6 +26,7 @@ import (
 	"github.com/aquasecurity/tracee/pkg/containers"
 	"github.com/aquasecurity/tracee/pkg/events/sorting"
 	"github.com/aquasecurity/tracee/pkg/external"
+	"github.com/aquasecurity/tracee/pkg/kernelsyms"
 	"github.com/aquasecurity/tracee/tracee-ebpf/tracee/internal/bufferdecoder"
 	"github.com/google/gopacket/layers"
 	"github.com/google/gopacket/pcapgo"
@@ -179,6 +180,7 @@ type Tracee struct {
 	containers        *containers.Containers
 	processTree       *ProcessTree
 	eventsSorter      *sorting.EventsChronologicalSorter
+	kernelSymbols     kernelsyms.KernelSymbolTable
 }
 
 type counter int32
@@ -289,6 +291,12 @@ func New(cfg Config) (*Tracee, error) {
 		return nil, fmt.Errorf("error initializing containers: %v", err)
 	}
 	t.containers = c
+
+	t.kernelSymbols, err = kernelsyms.NewKernelSymbolsMap()
+	if err != nil {
+		t.Close()
+		return nil, fmt.Errorf("error creating symbols map: %v", err)
+	}
 
 	err = t.initBPF()
 	if err != nil {
