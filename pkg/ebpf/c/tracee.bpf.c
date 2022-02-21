@@ -205,6 +205,14 @@ Copyright (C) Aqua Security inc.
 #define CONFIG_OPTIONS                  1
 #define CONFIG_FILTERS                  2
 
+// Map keys for kernel symbols from kallsyms
+#define PAGE_OFFSET_BASE                0
+#define	MEM_MAP                         1
+#define	MEM_SECTION                     2
+#define	VMEMMAP_BASE                    3
+#define	SECTION_TO_NODE_TABLE           4
+#define	NODE_DATA
+
 #define OPT_SHOW_SYSCALL                (1 << 0)
 #define OPT_EXEC_ENV                    (1 << 1)
 #define OPT_CAPTURE_FILES               (1 << 2)
@@ -285,11 +293,56 @@ Copyright (C) Aqua Security inc.
 
 #ifdef CORE
 #define get_kconfig(x) get_kconfig_val(x)
+#define get_type_size(x) bpf_core_type_size(x)
+#define pointers_diff(x, y, t) ((t *) (((u64)x - (u64)y) / get_type_size(t)))
 #else
 #define get_kconfig(x) CONFIG_##x
+#define get_type_size(x) sizeof(x)
+#define pointers_diff(x, y, t) (x - y)
 #endif
 
 #define ARCH_HAS_SYSCALL_WRAPPER        1000U
+#define FLATMEM                         1001U
+#define	DISCONTMEM                      1002U
+#define	SPARSEMEM                       1003U
+#define	SPARSEMEM_VMEMMAP               1004U
+#define	SPARSEMEM_EXTREME               1005U
+#define	DYNAMIC_MEMORY_LAYOUT           1006U
+#define	X86_32                          1007U
+#define	X86_PAE                         1008U
+
+/*================================ Kernel Consts =============================*/
+#ifdef CORE
+#define get_const(x) get_const_val(x)
+#else
+#define get_const(x) x
+#endif
+
+// Map keys for kernel defined consts
+#ifdef CORE
+// Non specific architecture consts
+#define SECTIONS_WIDTH                  0
+#define SECTIONS_PGOFF                  1
+#define SECTIONS_PGSHIFT                2
+#define SECTIONS_MASK                   3
+#define SECTIONS_PER_ROOT               4
+#define SECTION_ROOT_MASK               5
+#define ARCH_PFN_OFFSET                 6
+#define SECTION_MAP_LAST_BIT            7
+#define SECTION_MAP_MASK                8
+#define VMEMMAP_START                   9
+
+// Architecture varied consts
+#define SECTION_SIZE_BITS               1000
+#define	MAX_PHYSMEM_BITS                1001
+#define	PAGE_SHIFT                      1002
+#define	PAGE_SIZE                       1003
+#define	PAGE_OFFSET                     1004
+
+// X86 specific consts
+#define X86_FEATURE_LA57                2000
+
+#endif // CORE
 
 /*================================ eBPF MAPS =================================*/
 
@@ -577,6 +630,8 @@ BPF_HASH(sys_32_to_64_map, u32, u32);                   // map 32bit to 64bit sy
 BPF_HASH(params_types_map, u32, u64);                   // encoded parameters types for event
 BPF_HASH(process_tree_map, u32, u32);                   // filter events by the ancestry of the traced process
 BPF_HASH(process_context_map, u32, process_context_t);  // holds the process_context data for every tid
+BPF_HASH(consts_values_map, u32, u64)                   // holds values of kernel defined consts
+BPF_HASH(symbols_map, u32, u64)                         // holds the addresses of kernel symbols
 BPF_LRU_HASH(sock_ctx_map, u64, net_ctx_ext_t);         // socket address to process context
 BPF_LRU_HASH(network_map, local_net_id_t, net_ctx_t);   // network identifier to process context
 BPF_ARRAY(config_map, u32, 3);                          // various configurations
@@ -1156,6 +1211,30 @@ static __always_inline int get_kconfig_val(u32 key)
     return *config;
 }
 
+static __always_inline int get_const_val(u32 key)
+{
+    u64 *def_const = bpf_map_lookup_elem(&consts_values_map, &key);
+
+    if (def_const == NULL)
+        return 0;
+
+    return *def_const;
+}
+
+static __always_inline void save_const_val(u32 key, u64 val) {
+    bpf_map_update_elem(&consts_values_map, &key, &val, BPF_ANY);
+}
+
+static __always_inline void* get_symbol_val(u32 key)
+{
+    void **sym = bpf_map_lookup_elem(&symbols_map, &key);
+
+    if (sym == NULL)
+        return 0;
+
+    return *sym;
+}
+
 static __always_inline int init_context(context_t *context, struct task_struct *task, u32 options)
 {
     u64 id = bpf_get_current_pid_tgid();
@@ -1723,36 +1802,28 @@ static __always_inline void* get_dentry_path_str(struct dentry* dentry)
     set_buf_off(STRING_BUF_IDX, buf_off);
     return &string_p->buf[buf_off];
 }
-
-#ifdef CONFIG_FLATMEM
-struct page **mem_map = (struct page**)0x0;
-#define ARCH_PFN_OFFSET 0
-
-#elif defined(CONFIG_SPARSEMEM_VMEMMAP)
-struct page **vmemmap_base_addr = (struct page **)0xffffffffaae31f40;
-#define SECTION_MAP_LAST_BIT		(1UL<<4) // TODO: Dynamic value - changed between 5.10.89 to 5.16.7
-#define SECTION_MAP_MASK		(~(SECTION_MAP_LAST_BIT-1))
-
-
-#elif defined(CONFIG_SPARSEMEM)
-struct mem_section ***mem_section_addr = (struct mem_section ***)0xffffffffabc45618;
-unsigned long *page_offset_base_addr = (unsigned long *)0xffffffffaae31f50;
-#define SECTION_SIZE_BITS 27
-#define MAX_PHYSMEM_BITS 52
-#define SECTIONS_WIDTH		0
-#define SECTIONS_PGOFF		((sizeof(unsigned long)*8) - SECTIONS_WIDTH)
-#define SECTIONS_PGSHIFT	(SECTIONS_PGOFF * (SECTIONS_WIDTH != 0))
-#define SECTIONS_MASK		((1UL << SECTIONS_WIDTH) - 1)
-#define SECTIONS_PER_ROOT       (PAGE_SIZE / sizeof(struct mem_section))
-#define SECTION_ROOT_MASK	(SECTIONS_PER_ROOT - 1)
-#define SECTION_NR_TO_ROOT(sec)	((sec) / SECTIONS_PER_ROOT)
-#define PAGE_OFFSET page_offset_base // TODO: Get the global value
-
-#elif defined(CONFIG_DISCONTMEM)
-u8 **section_to_node_table = (u8 **)0x0;
-struct pglist_data **node_data = (struct pglist_data **)0x0;
-
-#endif // COFING_DISCONTMEM
+//
+//#ifdef CONFIG_FLATMEM
+//#define ARCH_PFN_OFFSET 0
+//
+//#elif defined(CONFIG_SPARSEMEM_VMEMMAP)
+//#define SECTION_MAP_LAST_BIT		(1UL<<4) // TODO: Dynamic value - changed between 5.10.89 to 5.16.7
+//#define SECTION_MAP_MASK		(~(SECTION_MAP_LAST_BIT-1))
+//
+//
+//#elif defined(CONFIG_SPARSEMEM)
+//#define SECTION_SIZE_BITS 27
+//#define MAX_PHYSMEM_BITS 52
+//#define SECTIONS_WIDTH		0
+//#define SECTIONS_PGOFF		((sizeof(unsigned long)*8) - SECTIONS_WIDTH)
+//#define SECTIONS_PGSHIFT	(SECTIONS_PGOFF * (SECTIONS_WIDTH != 0))
+//#define SECTIONS_MASK		((1UL << SECTIONS_WIDTH) - 1)
+//#define SECTIONS_PER_ROOT       (PAGE_SIZE / sizeof(struct mem_section))
+//#define SECTION_ROOT_MASK	(SECTIONS_PER_ROOT - 1)
+#define SECTION_NR_TO_ROOT(sec)	((sec) / get_const(SECTIONS_PER_ROOT))
+//#define PAGE_OFFSET page_offset_base // TODO: Get the global value
+//
+//#endif // COFING_DISCONTMEM
 
 /* Helper macro to print out debug messages */
 #define bpf_printk(fmt, ...)                            \
@@ -1762,84 +1833,134 @@ struct pglist_data **node_data = (struct pglist_data **)0x0;
                          ##__VA_ARGS__);                \
 })
 
-static __always_inline int my_page_to_nid(struct page *p) {
-    return (int)section_to_node_table[my_page_to_section(p)];
-}
+// Only needed in CO-RE
+static __always_inline void initialize_consts() {
+    #if defined(bpf_target_x86)
+    // x86_64 values
+    save_const_val(SECTION_SIZE_BITS, 27);
+    save_const_val(X86_FEATURE_LA57, 16*32 + 16);
+    save_const_val(MAX_PHYSMEM_BITS, 52); // TODO: Actually calculating this value according to l5 paging
+    save_const_val(PAGE_SHIFT, 12);
+    save_const_val(PAGE_SIZE, 1 << get_const_val(PAGE_SHIFT));
+    if (get_kconfig(DYNAMIC_MEMORY_LAYOUT)) {
+        // check
+        save_const_val(PAGE_OFFSET, READ_KERN(*(u64*)get_symbol_val(PAGE_OFFSET_BASE)));
+    } else {
+        save_const_val(PAGE_OFFSET, 0xffff888000000000); // check
+    }
 
-{
-    unsigned long flags = READ_KERN(p->flags);
-	return (flags >> SECTIONS_PGSHIFT) & SECTIONS_MASK;
+    #elif defined(bpf_target_arm64)
+    #endif // Architecture Specifics
+
+    // General values
+    if (get_kconfig(SPARSEMEM) && !get_kconfig(SPARSEMEM_VMEMMAP)) {
+        u64 sectionsShift = get_const_val(MAX_PHYSMEM_BITS) - get_const_val(SECTION_SIZE_BITS);
+        save_const_val(SECTIONS_WIDTH, sectionsShift);
+    } else {
+        save_const_val(SECTIONS_WIDTH, 0);
+    }
+    save_const_val(get_const_val(SECTIONS_PGOFF), (sizeof(unsigned long) * 8) - get_const_val(SECTIONS_WIDTH));
+    if (get_const_val(SECTIONS_WIDTH) != 0) {
+        save_const_val(SECTIONS_PGSHIFT, get_const_val(SECTIONS_PGOFF));
+    } else {
+        save_const_val(SECTIONS_PGSHIFT, 0);
+    }
+    save_const_val(SECTIONS_MASK, (1 << get_const_val(SECTIONS_WIDTH)) - 1);
+    if (get_kconfig(SPARSEMEM_EXTREME)) {
+        save_const_val(SECTIONS_PER_ROOT, get_const_val(PAGE_SIZE) / get_type_size(struct mem_section));
+    } else {
+        save_const_val(SECTIONS_PER_ROOT, 1);
+    }
+    save_const_val(SECTION_ROOT_MASK, get_const_val(SECTIONS_PER_ROOT) - 1);
+    if (get_kconfig(FLATMEM)) {
+        save_const_val(ARCH_PFN_OFFSET, get_const_val(PAGE_OFFSET) >> get_const_val(PAGE_SHIFT));
+    }
+
+    #if (LINUX_VERSION_CODE < KERNEL_VERSION(5, 3, 0))
+    save_const_val(SECTION_MAP_LAST_BIT, 1 << 3);
+    #elif (LINUX_VERSION_CODE < KERNEL_VERSION(5, 12, 0))
+    save_const_val(SECTION_MAP_LAST_BIT, 1 << 4);
+    #else
+    save_const_val(SECTION_MAP_LAST_BIT, 1 << 5);
+    #endif // Kernel Version
+
+    save_const_val(SECTION_MAP_MASK, !(get_const_val(SECTION_MAP_LAST_BIT) - 1));
+    save_const_val(VMEMMAP_START, (u64)READ_KERN(*(struct mem_section***)get_symbol_val(VMEMMAP_BASE)));
 }
 
 static __always_inline unsigned long my_page_to_section(struct page *p)
 {
     unsigned long flags = READ_KERN(p->flags);
-	return (flags >> SECTIONS_PGSHIFT) & SECTIONS_MASK;
+	return (flags >> get_const(SECTIONS_PGSHIFT)) & get_const(SECTIONS_MASK);
+}
+
+static __always_inline int my_page_to_nid(struct page *p) {
+    return (int)((READ_KERN(*(u16**)get_symbol_val(SECTION_TO_NODE_TABLE)))[my_page_to_section(p)]);
 }
 
 static __always_inline struct mem_section *my_nr_to_section(unsigned long nr)
 {
-    struct mem_section **mem_section = READ_KERN(*mem_section_addr);
-    if get_kconfig(SPARSEMEM_EXTREME) {
+    struct mem_section **mem_section = READ_KERN(*(struct mem_section ***)get_symbol_val(MEM_SECTION));
+    if (get_kconfig(SPARSEMEM_EXTREME)) {
         if (!mem_section) // TODO: Get the global mem_section value
             return NULL;
     }
     struct mem_section *section_root_array = READ_KERN(mem_section[SECTION_NR_TO_ROOT(nr)]);
 	if (!section_root_array)
 		return NULL;
-	return &section_root_array[nr & SECTION_ROOT_MASK];
+	return &section_root_array[nr & get_const(SECTION_ROOT_MASK)];
 }
 
 static __always_inline struct page *my_section_mem_map_addr(struct mem_section *section)
 {
 	unsigned long map = READ_KERN(section->section_mem_map);
-	map &= SECTION_MAP_MASK;
+	map &= get_const(SECTION_MAP_MASK);
 	return (struct page *)map;
 }
 
 static __always_inline unsigned long flatmem_page_to_pfn(struct page *p) {
-    return (unsigned long) ((p - mem_map) + ARCH_PFN_OFFSET);
+    return (unsigned long) (pointers_diff(p, READ_KERN(*(struct page**)get_symbol_val(MEM_MAP)), struct page) + get_const(ARCH_PFN_OFFSET));
 }
 
 static __always_inline unsigned long discontmem_page_to_pfn(struct page *p) {
-    struct pglist_data * __pgdat = section_to_node_table[my_page_to_nid(p)];
-    return (unsigned long) ((p - __pgdat->node_mem_map) + __pgdat->node_start_pfn);
+    struct pglist_data * __pgdat = (READ_KERN(*(struct pglist_data***)get_symbol_val(NODE_DATA)))[my_page_to_nid(p)];
+    return (unsigned long) (pointers_diff(p, __pgdat->node_mem_map, struct page) + __pgdat->node_start_pfn);
 }
 
 static __always_inline unsigned long sparsemem_page_to_pfn(struct page *p) {
     unsigned long sec = my_page_to_section(p);
     struct page *sec_mem_map = my_section_mem_map_addr(my_nr_to_section(sec));
-    return (unsigned long) (p - sec_mem_map);
+    return (unsigned long) (pointers_diff(p, sec_mem_map, struct page));
 }
 
 static __always_inline unsigned long sparsemem_vmemmap_page_to_pfn(struct page *p) {
-    struct page *my_vmemmap_base = READ_KERN(*vmemmap_base_addr);
-    bpf_printk("vmemap address: %lx, value %lx", vmemmap_base_addr, my_vmemmap_base);
+    struct page *my_vmemmap_base = READ_KERN(*(struct page**)get_symbol_val(VMEMMAP_BASE));
+    bpf_printk("vmemap address: %lx, value %lx", get_symbol_val(VMEMMAP_BASE), my_vmemmap_base);
     bpf_printk("size of page: %x", sizeof(struct page));
-    return (unsigned long)(p - my_vmemmap_base);
+    return (unsigned long)(pointers_diff(p, my_vmemmap_base, struct page));
 }
 
 static __always_inline unsigned long calculate_pfn_physical_address(unsigned long pfn) {
-    return pfn << PAGE_SHIFT;
+    return pfn << get_const(PAGE_SHIFT);
 }
 
 static __always_inline void * x86_64_pfn_physical_address_to_virtual_address(unsigned long pfn_phys_addr) {
-    unsigned long poffset_base = READ_KERN(*page_offset_base_addr);
+    unsigned long poffset_base = READ_KERN(*(unsigned long*)get_symbol_val(PAGE_OFFSET_BASE));
     bpf_printk("Virtual addresses offsets: %lx", poffset_base);
     return (void *)(pfn_phys_addr + poffset_base);
 }
 
 static __always_inline unsigned long generic_page_to_pfn(struct page *p) {
-    if get_kconfig(FLATMEM) {
+    if (get_kconfig(FLATMEM)) {
         return flatmem_page_to_pfn(p);
-    } elif get_kconfig(DISCONTMEM) {
+    } else if (get_kconfig(DISCONTMEM)) {
         return discontmem_page_to_pfn(p);
-    } elif get_kconfig(SPARSEMEM_VMEMMAP) {
+    } else if (get_kconfig(SPARSEMEM_VMEMMAP)) {
         return sparsemem_vmemmap_page_to_pfn(p);
-    } elif get_kconfig(SPARSEMEM) {
+    } else if (get_kconfig(SPARSEMEM)) {
         return sparsemem_page_to_pfn(p);
     } else {
-        bpf_prink("Unsupported physical memory model");
+        bpf_printk("Unsupported physical memory model");
         return -1;
     }
 }

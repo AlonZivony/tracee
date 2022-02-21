@@ -588,6 +588,11 @@ struct page {
 //        int _last_cpupid;
 };
 
+struct pglist_data {
+    struct page *node_mem_map;
+    unsigned long node_start_pfn;
+};
+
 struct address_space {
     void *private_data;
 };
