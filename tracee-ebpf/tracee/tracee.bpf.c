@@ -224,12 +224,12 @@ Copyright (C) Aqua Security inc.
 #define CONFIG_CGROUP_ID_FILTER         21
 
 // Map keys for kernel symbols from kallsyms
-#define PAGE_OFFSET_BASE                0
-#define	MEM_MAP                         1
-#define	MEM_SECTION                     2
-#define	VMEMMAP_BASE                    3
-#define	SECTION_TO_NODE_TABLE           4
-#define	NODE_DATA                       5
+#define PAGE_OFFSET_BASE_SYM                0
+#define	MEM_MAP_SYM                         1
+#define	MEM_SECTION_SYM                     2
+#define	VMEMMAP_BASE_SYM                    3
+#define	SECTION_TO_NODE_TABLE_SYM           4
+#define	NODE_DATA_SYM                       5
 
 // get_config(CONFIG_XXX_FILTER) returns 0 if not enabled
 #define FILTER_IN                       1
@@ -290,6 +290,8 @@ Copyright (C) Aqua Security inc.
 #define pointers_diff(x, y, t) (x - y)
 #endif
 
+#ifdef CORE
+
 #define ARCH_HAS_SYSCALL_WRAPPER        1000U
 #define FLATMEM                         1001U
 #define	DISCONTMEM                      1002U
@@ -299,6 +301,38 @@ Copyright (C) Aqua Security inc.
 #define	DYNAMIC_MEMORY_LAYOUT           1006U
 #define	X86_32                          1007U
 #define	X86_PAE                         1008U
+
+#else
+
+#ifndef CONFIG_ARCH_HAS_SYSCALL_WRAPPER
+#define CONFIG_ARCH_HAS_SYSCALL_WRAPPER 0
+#endif
+#ifndef CONFIG_FLATMEM
+#define CONFIG_FLATMEM 0
+#endif
+#ifndef CONFIG_DISCONTMEM
+#define CONFIG_DISCONTMEM 0
+#endif
+#ifndef CONFIG_SPARSEMEM
+#define CONFIG_SPARSEMEM 0
+#endif
+#ifndef CONFIG_SPARSEMEM_VMEMMAP
+#define CONFIG_SPARSEMEM_VMEMMAP 0
+#endif
+#ifndef CONFIG_SPARSEMEM_EXTREME
+#define CONFIG_SPARSEMEM_EXTREME 0
+#endif
+#ifndef CONFIG_DYNAMIC_MEMORY_LAYOUT
+#define CONFIG_DYNAMIC_MEMORY_LAYOUT 0
+#endif
+#ifndef CONFIG_X86_32
+#define CONFIG_X86_32 0
+#endif
+#ifndef CONFIG_X86_PAE
+#define CONFIG_X86_PAE 0
+#endif
+
+#endif // CORE
 
 /*================================ Kernel Consts =============================*/
 #ifdef CORE
@@ -330,6 +364,15 @@ Copyright (C) Aqua Security inc.
 
 // X86 specific consts
 #define X86_FEATURE_LA57                2000
+
+// Maintenance const
+#define ARE_CONSTS_DEFINED              10000
+
+#else
+
+#ifndef ARCH_PFN_OFFSET
+#define ARCH_PFN_OFFSET 0
+#endif
 
 #endif // CORE
 
@@ -1767,30 +1810,9 @@ static __always_inline void* get_dentry_path_str(struct dentry* dentry)
     set_buf_off(STRING_BUF_IDX, buf_off);
     return &string_p->buf[buf_off];
 }
-//
-//#ifdef CONFIG_FLATMEM
-//#define ARCH_PFN_OFFSET 0
-//
-//#elif defined(CONFIG_SPARSEMEM_VMEMMAP)
-//#define SECTION_MAP_LAST_BIT		(1UL<<4) // TODO: Dynamic value - changed between 5.10.89 to 5.16.7
-//#define SECTION_MAP_MASK		(~(SECTION_MAP_LAST_BIT-1))
-//
-//
-//#elif defined(CONFIG_SPARSEMEM)
-//#define SECTION_SIZE_BITS 27
-//#define MAX_PHYSMEM_BITS 52
-//#define SECTIONS_WIDTH		0
-//#define SECTIONS_PGOFF		((sizeof(unsigned long)*8) - SECTIONS_WIDTH)
-//#define SECTIONS_PGSHIFT	(SECTIONS_PGOFF * (SECTIONS_WIDTH != 0))
-//#define SECTIONS_MASK		((1UL << SECTIONS_WIDTH) - 1)
-//#define SECTIONS_PER_ROOT       (PAGE_SIZE / sizeof(struct mem_section))
-//#define SECTION_ROOT_MASK	(SECTIONS_PER_ROOT - 1)
-#define SECTION_NR_TO_ROOT(sec)	((sec) / get_const(SECTIONS_PER_ROOT))
-//#define PAGE_OFFSET page_offset_base // TODO: Get the global value
-//
-//#endif // COFING_DISCONTMEM
 
-/* Helper macro to print out debug messages */
+/*============================ Page Address Helper ==============================*/
+
 #define bpf_printk(fmt, ...)                            \
 ({                                                      \
         char ____fmt[] = fmt;                           \
@@ -1798,8 +1820,14 @@ static __always_inline void* get_dentry_path_str(struct dentry* dentry)
                          ##__VA_ARGS__);                \
 })
 
-// Only needed in CO-RE
+#ifdef CORE
+#define SECTION_NR_TO_ROOT(sec)	((sec) / get_const(SECTIONS_PER_ROOT))
 static __always_inline void initialize_consts() {
+    if (get_const(ARE_CONSTS_DEFINED)) {
+        return;
+    }
+    save_const_val(ARE_CONSTS_DEFINED, 1);
+
     #if defined(bpf_target_x86)
     // x86_64 values
     save_const_val(SECTION_SIZE_BITS, 27);
@@ -1809,7 +1837,7 @@ static __always_inline void initialize_consts() {
     save_const_val(PAGE_SIZE, 1 << get_const_val(PAGE_SHIFT));
     if (get_kconfig(DYNAMIC_MEMORY_LAYOUT)) {
         // check
-        save_const_val(PAGE_OFFSET, READ_KERN(*(u64*)get_symbol_val(PAGE_OFFSET_BASE)));
+        save_const_val(PAGE_OFFSET, READ_KERN(*(u64*)get_symbol_val(PAGE_OFFSET_BASE_SYM)));
     } else {
         save_const_val(PAGE_OFFSET, 0xffff888000000000); // check
     }
@@ -1850,8 +1878,9 @@ static __always_inline void initialize_consts() {
     #endif // Kernel Version
 
     save_const_val(SECTION_MAP_MASK, !(get_const_val(SECTION_MAP_LAST_BIT) - 1));
-    save_const_val(VMEMMAP_START, (u64)READ_KERN(*(struct mem_section***)get_symbol_val(VMEMMAP_BASE)));
+    save_const_val(VMEMMAP_START, (u64)READ_KERN(*(struct mem_section***)get_symbol_val(VMEMMAP_BASE_SYM)));
 }
+#endif // CORE
 
 static __always_inline unsigned long my_page_to_section(struct page *p)
 {
@@ -1860,17 +1889,18 @@ static __always_inline unsigned long my_page_to_section(struct page *p)
 }
 
 static __always_inline int my_page_to_nid(struct page *p) {
-    return (int)((READ_KERN(*(u16**)get_symbol_val(SECTION_TO_NODE_TABLE)))[my_page_to_section(p)]);
+    u16 *my_section_to_node_table = READ_KERN(*(u16**)get_symbol_val(SECTION_TO_NODE_TABLE_SYM));
+    return (int)(READ_KERN(my_section_to_node_table[my_page_to_section(p)]));
 }
 
 static __always_inline struct mem_section *my_nr_to_section(unsigned long nr)
 {
-    struct mem_section **mem_section = READ_KERN(*(struct mem_section ***)get_symbol_val(MEM_SECTION));
+    struct mem_section **my_mem_section = READ_KERN(*(struct mem_section ***)get_symbol_val(MEM_SECTION_SYM));
     if (get_kconfig(SPARSEMEM_EXTREME)) {
-        if (!mem_section) // TODO: Get the global mem_section value
+        if (!my_mem_section) // TODO: Get the global mem_section value
             return NULL;
     }
-    struct mem_section *section_root_array = READ_KERN(mem_section[SECTION_NR_TO_ROOT(nr)]);
+    struct mem_section *section_root_array = READ_KERN(my_mem_section[SECTION_NR_TO_ROOT(nr)]);
 	if (!section_root_array)
 		return NULL;
 	return &section_root_array[nr & get_const(SECTION_ROOT_MASK)];
@@ -1884,13 +1914,28 @@ static __always_inline struct page *my_section_mem_map_addr(struct mem_section *
 }
 
 static __always_inline unsigned long flatmem_page_to_pfn(struct page *p) {
-    return (unsigned long) (pointers_diff(p, READ_KERN(*(struct page**)get_symbol_val(MEM_MAP)), struct page) + get_const(ARCH_PFN_OFFSET));
+    struct page *my_mem_map = READ_KERN(*(struct page**)get_symbol_val(MEM_MAP_SYM));
+    return (unsigned long) (pointers_diff(p, my_mem_map, struct page) + get_const(ARCH_PFN_OFFSET));
 }
 
+// This part uses the pglist_data.node_mem_map, which is a member only when DISCONTMEM is not configured.
+// To avoid non-CORE compilation error it is removed with macros when not defined.
+#if defined(CORE) || CONFIG_DISCONTMEM
 static __always_inline unsigned long discontmem_page_to_pfn(struct page *p) {
-    struct pglist_data * __pgdat = (READ_KERN(*(struct pglist_data***)get_symbol_val(NODE_DATA)))[my_page_to_nid(p)];
-    return (unsigned long) (pointers_diff(p, __pgdat->node_mem_map, struct page) + __pgdat->node_start_pfn);
+    struct pglist_data ** my_node_data = READ_KERN(*(struct pglist_data***)get_symbol_val(NODE_DATA_SYM));
+    struct pglist_data * __pgdat = READ_KERN(my_node_data[my_page_to_nid(p)]);
+
+    #ifdef CORE
+    if (!bpf_core_field_exists(__pgdat->node_mem_map)) {
+        return 0;
+    }
+    #endif // CORE
+
+    struct page * node_mem_map = READ_KERN(__pgdat->node_mem_map);
+    unsigned long node_start_pfn = READ_KERN(__pgdat->node_start_pfn);
+    return ((unsigned long)pointers_diff(p, node_mem_map, struct page)) + node_start_pfn;
 }
+#endif // CORE || CONFIG_DISCONTMEM
 
 static __always_inline unsigned long sparsemem_page_to_pfn(struct page *p) {
     unsigned long sec = my_page_to_section(p);
@@ -1899,8 +1944,8 @@ static __always_inline unsigned long sparsemem_page_to_pfn(struct page *p) {
 }
 
 static __always_inline unsigned long sparsemem_vmemmap_page_to_pfn(struct page *p) {
-    struct page *my_vmemmap_base = READ_KERN(*(struct page**)get_symbol_val(VMEMMAP_BASE));
-    bpf_printk("vmemap address: %lx, value %lx", get_symbol_val(VMEMMAP_BASE), my_vmemmap_base);
+    struct page *my_vmemmap_base = READ_KERN(*(struct page**)get_symbol_val(VMEMMAP_BASE_SYM));
+    bpf_printk("vmemap address: %lx, value %lx", get_symbol_val(VMEMMAP_BASE_SYM), my_vmemmap_base);
     bpf_printk("size of page: %x", sizeof(struct page));
     return (unsigned long)(pointers_diff(p, my_vmemmap_base, struct page));
 }
@@ -1910,22 +1955,27 @@ static __always_inline unsigned long calculate_pfn_physical_address(unsigned lon
 }
 
 static __always_inline void * x86_64_pfn_physical_address_to_virtual_address(unsigned long pfn_phys_addr) {
-    unsigned long poffset_base = READ_KERN(*(unsigned long*)get_symbol_val(PAGE_OFFSET_BASE));
+    unsigned long poffset_base = READ_KERN(*(unsigned long*)get_symbol_val(PAGE_OFFSET_BASE_SYM));
     bpf_printk("Virtual addresses offsets: %lx", poffset_base);
     return (void *)(pfn_phys_addr + poffset_base);
 }
 
 static __always_inline unsigned long generic_page_to_pfn(struct page *p) {
+    #ifdef CORE
+    initialize_consts();
+    #endif // CORE
     if (get_kconfig(FLATMEM)) {
         return flatmem_page_to_pfn(p);
-    } else if (get_kconfig(DISCONTMEM)) {
-        return discontmem_page_to_pfn(p);
     } else if (get_kconfig(SPARSEMEM_VMEMMAP)) {
         return sparsemem_vmemmap_page_to_pfn(p);
     } else if (get_kconfig(SPARSEMEM)) {
         return sparsemem_page_to_pfn(p);
     } else {
-        bpf_printk("Unsupported physical memory model");
+        #if defined(CORE) || CONFIG_DISCONTMEM
+        if (get_kconfig(DISCONTMEM)) {
+            return discontmem_page_to_pfn(p);
+        }
+        #endif // CORE
         return -1;
     }
 }
@@ -1945,6 +1995,8 @@ static __always_inline void * page_virtual_address(struct page *p) {
 }
 
 #endif
+
+/*============================ Page Address Helper End ==============================*/
 
 static __always_inline int events_perf_submit(event_data_t *data, u32 id, long ret)
 {
