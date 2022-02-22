@@ -495,28 +495,6 @@ func (t *Tracee) populateBPFMaps() error {
 		}
 	}
 
-	// Initialize kconfig variables (map used instead of relying in libbpf's .kconfig automated maps)
-	// Note: this allows libbpf not to rely on the system kconfig file, tracee does the kconfig var identification job
-
-	bpfKConfigMap, err := t.bpfModule.GetMap("kconfig_map") // u32, u32
-	if err != nil {
-		return err
-	}
-
-	kconfigValues, err := loadKconfigValues(t.config.KernelConfig, t.config.Debug)
-	if err != nil {
-		return err
-	}
-
-	for key, value := range kconfigValues {
-		keyU32 := uint32(key)
-		valueU32 := uint32(value)
-		err = bpfKConfigMap.Update(unsafe.Pointer(&keyU32), unsafe.Pointer(&valueU32))
-		if err != nil {
-			return err
-		}
-	}
-
 	// Initialize map for global symbols of the kernel
 
 	bpfKallsymsMap, err := t.bpfModule.GetMap("symbols_map") // u32, u64
@@ -530,6 +508,28 @@ func (t *Tracee) populateBPFMaps() error {
 		keyU32 := uint32(key)
 		address := value.Address
 		err = bpfKallsymsMap.Update(unsafe.Pointer(&keyU32), unsafe.Pointer(&address))
+		if err != nil {
+			return err
+		}
+	}
+
+	// Initialize kconfig variables (map used instead of relying in libbpf's .kconfig automated maps)
+	// Note: this allows libbpf not to rely on the system kconfig file, tracee does the kconfig var identification job
+
+	bpfKConfigMap, err := t.bpfModule.GetMap("kconfig_map") // u32, u32
+	if err != nil {
+		return err
+	}
+
+	kconfigValues, err := loadKconfigValues(t.config.KernelConfig, kallsymsValues, t.config.Debug)
+	if err != nil {
+		return err
+	}
+
+	for key, value := range kconfigValues {
+		keyU32 := uint32(key)
+		valueU32 := uint32(value)
+		err = bpfKConfigMap.Update(unsafe.Pointer(&keyU32), unsafe.Pointer(&valueU32))
 		if err != nil {
 			return err
 		}
