@@ -3,6 +3,7 @@ package ebpf
 import (
 	"fmt"
 	"github.com/aquasecurity/libbpfgo/helpers"
+	"github.com/aquasecurity/tracee/pkg/kernelsyms"
 	"os"
 )
 
@@ -33,12 +34,12 @@ var kconfigUsed = map[helpers.KernelConfigOption]string{
 }
 
 // loadKconfigValues load all kconfig variables used within tracee.bpf.c
-func loadKconfigValues(kc *helpers.KernelConfig, isDebug bool) map[helpers.KernelConfigOption]helpers.KernelConfigOptionValue {
+func loadKconfigValues(kc *helpers.KernelConfig, isDebug bool) (map[helpers.KernelConfigOption]helpers.KernelConfigOptionValue, error) {
 	values := make(map[helpers.KernelConfigOption]helpers.KernelConfigOptionValue)
 	var err error
 	for key, keyString := range kconfigUsed {
 		if err = kc.AddCustomKernelConfig(key, keyString); err != nil {
-			return err
+			return nil, err
 		}
 	}
 
@@ -56,96 +57,33 @@ func loadKconfigValues(kc *helpers.KernelConfig, isDebug bool) map[helpers.Kerne
 			values[key] = kc.GetValue(key) // undefined, builtin OR module
 		}
 	}
-	return values
+	return values, err
 }
 
 type KernelGlobalsKey uint32
 
 const (
 	PAGE_OFFSET_BASE KernelGlobalsKey = iota
+	MEM_MAP
+	MEM_SECTION
 	VMEMMAP_BASE
+	SECTION_TO_NODE_TABLE
+	NODE_DATA
 )
 
-type KernelConstsKey uint32
+var kallsymsIDToName = map[KernelGlobalsKey]string{
+	PAGE_OFFSET_BASE:      "page_offset_base",
+	MEM_MAP:               "mem_map",
+	MEM_SECTION:           "mem_section",
+	VMEMMAP_BASE:          "vmemmap_base",
+	SECTION_TO_NODE_TABLE: "section_to_node_table",
+	NODE_DATA:             "node_data",
+}
 
-// Constants which are globally implemented
-const (
-	SECTIONS_WIDTH KernelConstsKey = iota
-	SECTIONS_PGOFF
-	SECTIONS_PGSHIFT
-	SECTIONS_MASK
-	SECTIONS_PER_ROOT
-	SECTION_ROOT_MASK
-	ARCH_PFN_OFFSET
-	SECTION_MAP_LAST_BIT
-	SECTION_MAP_MASK
-	VMEMMAP_START
-)
-
-// Constants whichl are implemented per architecture
-const (
-	SECTION_SIZE_BITS KernelConstsKey = iota + 1000
-	MAX_PHYSMEM_BITS
-	PAGE_SHIFT
-	PAGE_SIZE
-	PAGE_OFFSET
-)
-
-// X86_64 specific constants
-const (
-	X86_FEATURE_LA57 KernelConstsKey = iota + 2000
-)
-
-const UNSIGNED_LONG_SIZE = 8
-
-// calculateKernelConsts calculates defined values from the kernel according to version and kconfig values to be used
-// by the BPF programs
-func calculateKernelConsts(kconfigValues map[helpers.KernelConfigOption]helpers.KernelConfigOptionValue,
-	kernelGlobalArgs map[KernelGlobalsKey]int, osInfo *helpers.OSInfo) map[KernelConstsKey]int {
-	kernelConsts := make(map[KernelConstsKey]int)
-	// x86_64 values
-	kernelConsts[SECTION_SIZE_BITS] = 27
-	kernelConsts[X86_FEATURE_LA57] = 16*32 + 16
-	kernelConsts[MAX_PHYSMEM_BITS] = 52 // TODO: Actually calculating this value according to l5 paging
-	kernelConsts[PAGE_SHIFT] = 12
-	kernelConsts[PAGE_SIZE] = 1 << kernelConsts[PAGE_SHIFT]
-	if kconfigValues[CONFIG_DYNAMIC_MEMORY_LAYOUT] == helpers.BUILTIN {
-		// check
-		kernelConsts[PAGE_OFFSET] = kernelGlobalArgs[PAGE_OFFSET_BASE]
-	} else {
-		kernelConsts[PAGE_OFFSET] = 0xffff888000000000 // check
+func loadKallsymsValues(ksyms kernelsyms.KernelSymbolTable) map[KernelGlobalsKey]kernelsyms.KernelSymbol {
+	kallsymsMap := make(map[KernelGlobalsKey]kernelsyms.KernelSymbol)
+	for id, name := range kallsymsIDToName {
+		kallsymsMap[id], _ = ksyms.GetSymbolByName("system", name)
 	}
-
-	// General values
-	if kconfigValues[CONFIG_SPARSEMEM] == helpers.BUILTIN && kconfigValues[CONFIG_SPARSEMEM_VMEMMAP] == helpers.UNDEFINED {
-		sectionsShift := kernelConsts[MAX_PHYSMEM_BITS] - kernelConsts[SECTION_SIZE_BITS]
-		kernelConsts[SECTIONS_WIDTH] = sectionsShift
-	} else {
-		kernelConsts[SECTIONS_WIDTH] = 0
-	}
-	kernelConsts[SECTIONS_PGOFF] = (UNSIGNED_LONG_SIZE * 8) - kernelConsts[SECTIONS_WIDTH]
-	if kernelConsts[SECTIONS_WIDTH] != 0 {
-		kernelConsts[SECTIONS_PGSHIFT] = kernelConsts[SECTIONS_PGOFF]
-	} else {
-		kernelConsts[SECTIONS_PGSHIFT] = 0
-	}
-	kernelConsts[SECTIONS_MASK] = (1 << kernelConsts[SECTIONS_WIDTH]) - 1
-	if kconfigValues[CONFIG_SPARSEMEM_EXTREME] == helpers.BUILTIN {
-		kernelConsts[SECTIONS_PER_ROOT] = kernelConsts[PAGE_SIZE] // TODO: / sizeof(struct mem_section)
-	} else {
-		kernelConsts[SECTIONS_PER_ROOT] = 1
-	}
-	kernelConsts[SECTION_ROOT_MASK] = kernelConsts[SECTIONS_PER_ROOT] - 1
-	kernelConsts[ARCH_PFN_OFFSET] = kernelConsts[PAGE_OFFSET] >> kernelConsts[PAGE_SHIFT]
-	if osInfo.CompareOSBaseKernelRelease("5.3") == -1 {
-		kernelConsts[SECTION_MAP_LAST_BIT] = 1 << 3
-	} else if osInfo.CompareOSBaseKernelRelease("5.12") == -1 {
-		kernelConsts[SECTION_MAP_LAST_BIT] = 1 << 4
-	} else {
-		kernelConsts[SECTION_MAP_LAST_BIT] = 1 << 5
-	}
-	kernelConsts[SECTION_MAP_MASK] = ^(kernelConsts[SECTION_MAP_LAST_BIT] - 1)
-	kernelConsts[VMEMMAP_START] = kernelGlobalArgs[VMEMMAP_BASE]
-
-	return kernelConsts
+	return kallsymsMap
 }
