@@ -503,29 +503,36 @@ func (t *Tracee) populateBPFMaps() error {
 		return err
 	}
 
-	kconfigValues := loadKconfigValues(t.config.KernelConfig, t.config.Debug)
+	kconfigValues, err := loadKconfigValues(t.config.KernelConfig, t.config.Debug)
+	if err != nil {
+		return err
+	}
 
 	for key, value := range kconfigValues {
-		err = bpfKConfigMap.Update(unsafe.Pointer(&key), unsafe.Pointer(&value))
+		keyU32 := uint32(key)
+		valueU32 := uint32(value)
+		err = bpfKConfigMap.Update(unsafe.Pointer(&keyU32), unsafe.Pointer(&valueU32))
 		if err != nil {
 			return err
 		}
 	}
 
-	// Initialize map for defined consts of the kernel in use by the BPF programs
+	// Initialize map for global symbols of the kernel
 
-	bpfConstsMap, err := t.bpfModule.GetMap("consts_map") // u32, u32
+	bpfKallsymsMap, err := t.bpfModule.GetMap("symbols_map") // u32, u64
 	if err != nil {
 		return err
 	}
 
-	osInfo, err := helpers.GetOSInfo()
-	if err != nil {
-		return err
-	}
+	kallsymsValues := loadKallsymsValues(t.kernelSymbols)
 
-	for key, value := range calculateKernelConsts(kconfigValues, make(map[KernelGlobalsKey]int), osInfo) {
-		err = bpfConstsMap.Update(unsafe.Pointer(&key), unsafe.Pointer(&value))
+	for key, value := range kallsymsValues {
+		keyU32 := uint32(key)
+		address := value.Address
+		err = bpfKallsymsMap.Update(unsafe.Pointer(&keyU32), unsafe.Pointer(&address))
+		if err != nil {
+			return err
+		}
 	}
 
 	// Initialize config and pids maps
