@@ -1842,7 +1842,17 @@ static __always_inline void initialize_consts() {
         save_const_val(PAGE_OFFSET, 0xffff888000000000); // check
     }
 
+    save_const_val(VMEMMAP_START, (u64)READ_KERN(*(struct mem_section***)get_symbol_val(VMEMMAP_BASE_SYM)));
+
     #elif defined(bpf_target_arm64)
+
+    save_const_val(STRUCT_PAGE_MAX_SHIFT, log2(get_type_size(struct page)))
+    save_const_val(PAGE_SHIFT, 12) // check
+    save_const_val(VA_BITS, 32); // check
+    save_const_val(PAGE_OFFSET, UL(0xffffffffffffffff) - (UL(1) << (get_const_val(VA_BITS) - 1)) + 1); // check
+    save_const_val(VMEMMAP_SIZE, UL(1) << (VA_BITS - PAGE_SHIFT - 1 + STRUCT_PAGE_MAX_SHIFT)); // check
+    save_const_val(VMEMMAP_START, get_const_val(PAGE_OFFSET) - get_const_val(VMEMMAP_SIZE)); // check
+
     #endif // Architecture Specifics
 
     // General values
@@ -1878,7 +1888,6 @@ static __always_inline void initialize_consts() {
     #endif // Kernel Version
 
     save_const_val(SECTION_MAP_MASK, !(get_const_val(SECTION_MAP_LAST_BIT) - 1));
-    save_const_val(VMEMMAP_START, (u64)READ_KERN(*(struct mem_section***)get_symbol_val(VMEMMAP_BASE_SYM)));
 }
 #endif // CORE
 
@@ -1988,6 +1997,10 @@ static __always_inline void * page_virtual_address(struct page *p) {
     void *page_addr = x86_64_pfn_physical_address_to_virtual_address(pfn_phys_addr);
     bpf_printk("Page resolving: pfn %lx in physical address %lx is located at %lx", pfn, pfn_phys_addr, page_addr);
     return page_addr;
+}
+
+static __always_inline u64 __page_to_voff(struct page *p) {
+
 }
 
 #elif defined(bpf_target_arm64)
