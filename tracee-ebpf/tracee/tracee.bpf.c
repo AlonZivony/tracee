@@ -1999,9 +1999,9 @@ static __always_inline void * page_virtual_address(struct page *p) {
     return page_addr;
 }
 
-static __always_inline u64 __page_to_voff(struct page *p) {
-
-}
+//static __always_inline u64 __page_to_voff(struct page *p) {
+//
+//}
 
 #elif defined(bpf_target_arm64)
 static __always_inline void * page_virtual_address(struct page *p) {
@@ -4167,13 +4167,39 @@ static __always_inline int do_vfs_write_writev_tail(struct pt_regs *ctx, u32 eve
     return 0;
 }
 
+static __always_inline int do_magic_write_from_page(struct pt_regs *ctx, struct file *file, struct page *page, unsigned int in_page_offset, unsigned int in_page_len) {
+    event_data_t data = {};
+    if (!init_event_data(&data, ctx))
+        return 0;
+
+    u8 header[FILE_MAGIC_HDR_SIZE];
+
+    // Extract device id, inode number, mode and file path
+    void *file_path = get_path_str(GET_FIELD_ADDR(file->f_path));
+    dev_t s_dev = get_dev_from_file(file);
+    unsigned long inode_nr = get_inode_nr_from_file(file);
+    unsigned short i_mode = get_inode_mode_from_file(file);
+    u32 header_bytes = FILE_MAGIC_HDR_SIZE;
+    if (header_bytes > in_page_len)
+        header_bytes = in_page_len;
+
+    void *data_address = page_virtual_address(page) + in_page_offset;
+    bpf_probe_read(header, header_bytes, data_address);
+
+    save_str_to_buf(&data, file_path, 0);
+    save_bytes_to_buf(&data, header, header_bytes, 1);
+    save_to_submit_buf(&data, &s_dev, sizeof(dev_t), 2);
+    save_to_submit_buf(&data, &inode_nr, sizeof(unsigned long), 3);
+
+    // Submit magic_write event
+    events_perf_submit(&data, MAGIC_WRITE, PT_REGS_RC(ctx));
+
+    return 0;
+}
+
 SEC("kprobe/direct_splice_actor")
 int BPF_KPROBE(trace_direct_splice_actor)
 {
-    event_data_t data = {};
-        if (!init_event_data(&data, ctx))
-            return 0;
-
     args_t args = {};
     args.args[0] = PT_REGS_PARM1(ctx);
     args.args[1] = PT_REGS_PARM2(ctx);
@@ -4182,33 +4208,21 @@ int BPF_KPROBE(trace_direct_splice_actor)
     struct file *out_file = READ_KERN(out_file_desc->u.file);
     loff_t *out_file_position_addr = READ_KERN(out_file_desc->opos);
     loff_t out_file_position = READ_KERN(*out_file_position_addr);
-    void *file_path = get_path_str(GET_FIELD_ADDR(out_file->f_path));
+    if (out_file_position != 0) {
+        return 0;
+    }
 
+    // Extract the relevant page and read info from the pipe struct
     struct pipe_inode_info *pipe = (struct pipe_inode_info*) args.args[0];
-    bpf_printk("Actor: pipe address is %lx", pipe);
     struct pipe_buffer *bufs = READ_KERN(pipe->bufs);
-    bpf_printk("Actor: pipe buffers address is %lx", bufs);
     int tail = READ_KERN(pipe->tail);
     int ring_size = READ_KERN(pipe->ring_size);
-    bpf_printk("Actor: buffer tail is %d and ring size is %d", tail, ring_size);
     struct pipe_buffer read_buffer = READ_KERN(bufs[tail & (ring_size - 1)]);
-    bpf_printk("Actor: read pipe buffer address is %lx", &bufs);
     struct page *read_page = read_buffer.page;
     unsigned int in_page_data_offset = READ_KERN(read_buffer.offset);
     unsigned int in_page_data_len = READ_KERN(read_buffer.len);
 
-    u8 header[FILE_MAGIC_HDR_SIZE];
-    bpf_printk("Actor: page address is %lx and offset is %d", read_page, in_page_data_offset);
-    void *data_address = page_virtual_address(read_page) + in_page_data_offset;
-    bpf_probe_read(header, FILE_MAGIC_HDR_SIZE, data_address);
-
-    save_str_to_buf(&data, file_path, 0);
-    save_to_submit_buf(&data, &out_file_position, sizeof(loff_t*), 1);
-    save_to_submit_buf(&data, &in_page_data_offset, sizeof(unsigned int), 2);
-    save_to_submit_buf(&data, &in_page_data_len, sizeof(unsigned int), 3);
-    save_bytes_to_buf(&data, header, FILE_MAGIC_HDR_SIZE, 4);
-    events_perf_submit(&data, DIRECT_SPLICE_ACTOR, 0);
-    return 0;
+    return do_magic_write_from_page(ctx, out_file, read_page, in_page_data_offset, in_page_data_len);
 }
 
 SEC("kprobe/vfs_write")

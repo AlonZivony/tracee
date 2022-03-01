@@ -5805,21 +5805,6 @@ var EventsDefinitions = map[int32]EventDefinition{
 			{Type: "off_t", Name: "pos"},
 		},
 	},
-	DirectSpliceActorID: {
-		ID32Bit: sys32undefined,
-		Name:    "direct_splice_actor",
-		Probes: []probe{
-			{event: "direct_splice_actor", attach: kprobe, fn: "trace_direct_splice_actor"},
-		},
-		Sets: []string{},
-		Params: []external.ArgMeta{
-			{Type: "const char*", Name: "out_path"},
-			{Type: "loff_t", Name: "write_position"},
-			{Type: "unsigned int", Name: "in_tail_page_offset"},
-			{Type: "unsigned int", Name: "in_tail_page_len"},
-			{Type: "bytes", Name: "bytes"},
-		},
-	},
 	MemProtAlertEventID: {
 		ID32Bit: sys32undefined,
 		Name:    "mem_prot_alert",
@@ -5865,10 +5850,14 @@ var EventsDefinitions = map[int32]EventDefinition{
 	MagicWriteEventID: {
 		ID32Bit: sys32undefined,
 		Name:    "magic_write",
-		Probes:  []probe{}, Sets: []string{},
+		Probes: []probe{
+			{event: "direct_splice_actor", attach: kprobe, fn: "trace_direct_splice_actor"},
+		},
+		Sets: []string{},
 		Dependencies: []dependency{
 			{eventID: VfsWriteEventID},
 			{eventID: VfsWritevEventID},
+			{eventID: DirectSpliceActorID},
 		},
 		Params: []external.ArgMeta{
 			{Type: "const char*", Name: "pathname"},
