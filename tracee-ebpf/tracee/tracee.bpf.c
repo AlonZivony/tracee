@@ -230,6 +230,8 @@ Copyright (C) Aqua Security inc.
 #define	VMEMMAP_BASE_SYM                    3
 #define	SECTION_TO_NODE_TABLE_SYM           4
 #define	NODE_DATA_SYM                       5
+#define SPARSE_INDEX_ALLOC_SYM              6
+#define PIPEFIFO_OPS_SYM                    7
 
 // get_config(CONFIG_XXX_FILTER) returns 0 if not enabled
 #define FILTER_IN                       1
@@ -1199,6 +1201,42 @@ static __always_inline struct sockaddr_un get_unix_sock_addr(struct unix_sock *s
     return sockaddr;
 }
 
+// Extract the next page to be used in the pipe for read, and return with out-args the offset and length of the data
+// in the page to be read next.
+static __always_inline struct page* extract_next_read_page_info_from_pipe_buf(struct pipe_inode_info *pipe,
+                                                                            unsigned int *in_page_data_offset,
+                                                                            unsigned int *in_page_data_len)
+{
+    struct pipe_buffer *bufs = READ_KERN(pipe->bufs);
+    unsigned int curbuf;
+
+    #ifndef CORE
+    #if (LINUX_VERSION_CODE < KERNEL_VERSION(5, 5, 0))
+    curbuf = READ_KERN(pipe->curbuf);
+    #else
+    int tail = READ_KERN(pipe->tail);
+    int ring_size = READ_KERN(pipe->ring_size);
+    curbuf = tail & (ring_size - 1);
+    #endif
+    #else // CORE
+    struct netns_nftables *check = NULL;
+    // Struct added in commit dbab40bdb4 before v5.5 release.
+    if (!bpf_core_type_exists(struct io_uring_files_update)) {
+        curbuf = READ_KERN(pipe->curbuf);
+    } else {
+        int tail = READ_KERN(pipe->tail);
+        int ring_size = READ_KERN(pipe->ring_size);
+        curbuf = tail & (ring_size - 1);
+    }
+    #endif
+
+    struct pipe_buffer current_buffer = READ_KERN(bufs[curbuf]);
+    struct page *current_page = current_buffer.page;
+    *in_page_data_offset = READ_KERN(current_buffer.offset);
+    *in_page_data_len = READ_KERN(current_buffer.len);
+    return current_page;
+}
+
 /*============================ HELPER FUNCTIONS ==============================*/
 
 static __inline int has_prefix(char *prefix, char *str, int n)
@@ -1259,6 +1297,15 @@ static __always_inline void* get_symbol_val(u32 key)
         return 0;
 
     return *sym;
+}
+
+static __always_inline struct pipe_inode_info* my_get_pipe_info(struct file *file)
+{
+    struct pipe_inode_info *pipe = READ_KERN(file->private_data);
+    if (READ_KERN(file->f_op) != get_symbol_val(PIPEFIFO_OPS_SYM) && !pipe) {
+        return NULL;
+    }
+    return pipe;
 }
 
 static __always_inline int init_context(context_t *context, struct task_struct *task)
@@ -1954,8 +2001,6 @@ static __always_inline unsigned long sparsemem_page_to_pfn(struct page *p) {
 
 static __always_inline unsigned long sparsemem_vmemmap_page_to_pfn(struct page *p) {
     struct page *my_vmemmap_base = READ_KERN(*(struct page**)get_symbol_val(VMEMMAP_BASE_SYM));
-    bpf_printk("vmemap address: %lx, value %lx", get_symbol_val(VMEMMAP_BASE_SYM), my_vmemmap_base);
-    bpf_printk("size of page: %x", sizeof(struct page));
     return (unsigned long)(pointers_diff(p, my_vmemmap_base, struct page));
 }
 
@@ -1965,7 +2010,6 @@ static __always_inline unsigned long calculate_pfn_physical_address(unsigned lon
 
 static __always_inline void * x86_64_pfn_physical_address_to_virtual_address(unsigned long pfn_phys_addr) {
     unsigned long poffset_base = READ_KERN(*(unsigned long*)get_symbol_val(PAGE_OFFSET_BASE_SYM));
-    bpf_printk("Virtual addresses offsets: %lx", poffset_base);
     return (void *)(pfn_phys_addr + poffset_base);
 }
 
@@ -1995,7 +2039,6 @@ static __always_inline void * page_virtual_address(struct page *p) {
     unsigned long pfn = generic_page_to_pfn(p);
     unsigned long pfn_phys_addr = calculate_pfn_physical_address(pfn);
     void *page_addr = x86_64_pfn_physical_address_to_virtual_address(pfn_phys_addr);
-    bpf_printk("Page resolving: pfn %lx in physical address %lx is located at %lx", pfn, pfn_phys_addr, page_addr);
     return page_addr;
 }
 
@@ -4167,7 +4210,15 @@ static __always_inline int do_vfs_write_writev_tail(struct pt_regs *ctx, u32 eve
     return 0;
 }
 
-static __always_inline int do_magic_write_from_page(struct pt_regs *ctx, struct file *file, struct page *page, unsigned int in_page_offset, unsigned int in_page_len) {
+// Creating a magic_write event using a page struct.
+// This method has a flaw - if file header is not entirely in the first page only the part in the current page will
+// be extracted.
+static __always_inline int do_magic_write_from_page(struct pt_regs *ctx,
+                                                    struct file *file,
+                                                    struct page *page,
+                                                    unsigned int in_page_offset,
+                                                    unsigned int in_page_len)
+{
     event_data_t data = {};
     if (!init_event_data(&data, ctx))
         return 0;
@@ -4179,9 +4230,11 @@ static __always_inline int do_magic_write_from_page(struct pt_regs *ctx, struct 
     dev_t s_dev = get_dev_from_file(file);
     unsigned long inode_nr = get_inode_nr_from_file(file);
     unsigned short i_mode = get_inode_mode_from_file(file);
-    u32 header_bytes = FILE_MAGIC_HDR_SIZE;
-    if (header_bytes > in_page_len)
-        header_bytes = in_page_len;
+    u32 header_bytes = in_page_len;
+    if (header_bytes >= FILE_MAGIC_HDR_SIZE)
+        header_bytes = FILE_MAGIC_HDR_SIZE;
+    else
+        header_bytes &= FILE_MAGIC_MASK;
 
     void *data_address = page_virtual_address(page) + in_page_offset;
     bpf_probe_read(header, header_bytes, data_address);
@@ -4213,16 +4266,48 @@ int BPF_KPROBE(trace_direct_splice_actor)
     }
 
     // Extract the relevant page and read info from the pipe struct
-    struct pipe_inode_info *pipe = (struct pipe_inode_info*) args.args[0];
-    struct pipe_buffer *bufs = READ_KERN(pipe->bufs);
-    int tail = READ_KERN(pipe->tail);
-    int ring_size = READ_KERN(pipe->ring_size);
-    struct pipe_buffer read_buffer = READ_KERN(bufs[tail & (ring_size - 1)]);
-    struct page *read_page = read_buffer.page;
-    unsigned int in_page_data_offset = READ_KERN(read_buffer.offset);
-    unsigned int in_page_data_len = READ_KERN(read_buffer.len);
+    unsigned int in_page_data_offset, in_page_data_len;
+    struct pipe_inode_info *input_pipe = (struct pipe_inode_info*) args.args[0];
+    struct page *read_page = extract_next_read_page_info_from_pipe_buf(input_pipe, &in_page_data_offset, &in_page_data_len);
 
     return do_magic_write_from_page(ctx, out_file, read_page, in_page_data_offset, in_page_data_len);
+}
+
+SEC("kprobe/do_splice")
+int BPF_KPROBE(trace_do_splice)
+{
+    args_t args = {};
+    args.args[0] = PT_REGS_PARM1(ctx);
+    args.args[1] = PT_REGS_PARM2(ctx);
+    args.args[2] = PT_REGS_PARM3(ctx);
+    args.args[3] = PT_REGS_PARM4(ctx);
+    args.args[4] = PT_REGS_PARM5(ctx);
+    args.args[5] = PT_REGS_PARM6(ctx);
+
+
+    loff_t *out_file_position_addr = (loff_t*) args.args[3];
+    loff_t out_file_position = READ_KERN(*out_file_position_addr);
+    if (out_file_position != 0) {
+        return 0;
+    }
+
+    // We are not intrested in splice to pipe, only to files with magic_write
+    struct file *out_file = (struct file*) args.args[2];
+    if (my_get_pipe_info(out_file)) {
+        return 0;
+    }
+
+    // Extract the relevant page and read info from the pipe struct
+    struct file *in_file = (struct file*) args.args[0];
+    // Because out file is not a pipe, input file has to be a pipe
+    unsigned int in_page_data_offset, in_page_data_len;
+    struct page *read_page = extract_next_read_page_info_from_pipe_buf(my_get_pipe_info(in_file), &in_page_data_offset, &in_page_data_len);
+    unsigned int write_len = (unsigned int) args.args[4];
+    if (in_page_data_len < write_len) {
+        write_len = in_page_data_len;
+    }
+
+    return do_magic_write_from_page(ctx, out_file, read_page, in_page_data_offset, write_len);
 }
 
 SEC("kprobe/vfs_write")

@@ -17,6 +17,7 @@ const (
 	SECTION_TO_NODE_TABLE
 	NODE_DATA
 	SPARSE_INDEX_ALLOC_FUNC
+	PIPEFIFO_OPS
 )
 
 var kallsymsIDToName = map[KernelGlobalsKey]string{
@@ -27,6 +28,7 @@ var kallsymsIDToName = map[KernelGlobalsKey]string{
 	SECTION_TO_NODE_TABLE:   "section_to_node_table",
 	NODE_DATA:               "node_data",
 	SPARSE_INDEX_ALLOC_FUNC: "sparse_index_alloc",
+	PIPEFIFO_OPS:            "pipefifo_ops",
 }
 
 func loadKallsymsValues(ksyms kernelsyms.KernelSymbolTable) map[KernelGlobalsKey]kernelsyms.KernelSymbol {

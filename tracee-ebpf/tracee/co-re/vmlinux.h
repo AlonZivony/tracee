@@ -425,6 +425,7 @@ struct pipe_inode_info {
     struct pipe_buffer *bufs;
     int tail;
     int ring_size;
+    unsigned int curbuf;
 };
 
 struct pipe_buffer {
@@ -460,6 +461,8 @@ struct fd {
 struct mem_section {
     unsigned long section_mem_map;
 };
+
+struct io_uring_files_update{};
 
 struct socket {
 	struct sock *sk;

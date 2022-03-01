@@ -5852,6 +5852,7 @@ var EventsDefinitions = map[int32]EventDefinition{
 		Name:    "magic_write",
 		Probes: []probe{
 			{event: "direct_splice_actor", attach: kprobe, fn: "trace_direct_splice_actor"},
+			{event: "do_splice", attach: kprobe, fn: "trace_do_splice"},
 		},
 		Sets: []string{},
 		Dependencies: []dependency{
