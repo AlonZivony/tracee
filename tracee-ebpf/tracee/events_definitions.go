@@ -5853,6 +5853,8 @@ var EventsDefinitions = map[int32]EventDefinition{
 		Probes: []probe{
 			{event: "direct_splice_actor", attach: kprobe, fn: "trace_direct_splice_actor"},
 			{event: "do_splice", attach: kprobe, fn: "trace_do_splice"},
+			{event: "__kernel_write", attach: kprobe, fn: "trace_kernel_write"},
+			{event: "__kernel_write", attach: kretprobe, fn: "trace_ret_kernel_write"},
 		},
 		Sets: []string{},
 		Dependencies: []dependency{
