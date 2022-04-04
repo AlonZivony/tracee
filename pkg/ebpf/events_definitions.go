@@ -1,6 +1,9 @@
 package ebpf
 
-import "github.com/aquasecurity/tracee/types/trace"
+import (
+	"github.com/aquasecurity/tracee/types/trace"
+	"github.com/syndtr/gocapability/capability"
+)
 
 // ProbeType is an enum that describes the mechanism used to attach the event
 // Kprobes are explained here: https://github.com/iovisor/bcc/blob/master/docs/reference_guide.md#1-kprobes
@@ -27,8 +30,9 @@ type eventDependency struct {
 }
 
 type dependencies struct {
-	events   []eventDependency // Events required to be loaded and/or submitted for the event to happen
-	ksymbols []string
+	events       []eventDependency // Events required to be loaded and/or submitted for the event to happen
+	ksymbols     []string
+	capabilities []capability.Cap
 }
 
 // EventDefinition is a struct describing an event configuration
@@ -6124,6 +6128,9 @@ var EventsDefinitions = map[int32]EventDefinition{
 		Name:    "init_namespaces",
 		Probes:  []probe{},
 		Sets:    []string{},
+		Dependencies: dependencies{
+			capabilities: []capability.Cap{capability.CAP_SYS_PTRACE},
+		},
 		Params: []trace.ArgMeta{
 			{Type: "u32", Name: "cgroup"},
 			{Type: "u32", Name: "ipc"},
@@ -6244,6 +6251,9 @@ var EventsDefinitions = map[int32]EventDefinition{
 		Sets:    []string{},
 		Params: []trace.ArgMeta{
 			{Type: "external.PktMeta", Name: "metadata"},
+		},
+		Dependencies: dependencies{
+			capabilities: []capability.Cap{capability.CAP_NET_ADMIN},
 		},
 	},
 	ProcCreateEventID: {

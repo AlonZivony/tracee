@@ -197,6 +197,18 @@ func (t *Tracee) Stats() *metrics.Stats {
 	return &t.stats
 }
 
+func CreateEssentialEventsList(cfg *Config) []int32 {
+	var essentialEvents = getConfigDependentEssentialEvents(cfg)
+
+	for id, e := range EventsDefinitions {
+		if e.EssentialEvent {
+			essentialEvents = append(essentialEvents, id)
+		}
+	}
+
+	return essentialEvents
+}
+
 func isEssential(id int32) bool {
 	return EventsDefinitions[id].EssentialEvent
 }
@@ -230,26 +242,8 @@ func New(cfg Config) (*Tracee, error) {
 		return nil, fmt.Errorf("validation error: %v", err)
 	}
 
-	if cfg.Capture.Exec {
-		setEssential(SchedProcessExecEventID)
-	}
-	if cfg.Capture.FileWrite {
-		setEssential(VfsWriteEventID)
-		setEssential(VfsWritevEventID)
-		setEssential(__KernelWriteEventID)
-	}
-	if cfg.Capture.Module {
-		setEssential(SecurityPostReadFileEventID)
-		setEssential(InitModuleEventID)
-	}
-	if cfg.Capture.Mem {
-		setEssential(MmapEventID)
-		setEssential(MprotectEventID)
-		setEssential(MemProtAlertEventID)
-	}
-
-	if cfg.Capture.NetIfaces != nil || cfg.Debug {
-		setEssential(SecuritySocketBindEventID)
+	for _, eventID := range getConfigDependentEssentialEvents(&cfg) {
+		setEssential(eventID)
 	}
 
 	// Tracee bpf code uses monotonic clock as event timestamp.
@@ -1271,4 +1265,32 @@ func findInList(element string, list *[]string) (int, error) {
 		}
 	}
 	return 0, fmt.Errorf("element: %s dosent found\n", element)
+}
+
+func getConfigDependentEssentialEvents(cfg *Config) []int32 {
+	var essentialEvents []int32
+
+	if cfg.Capture.Exec {
+		essentialEvents = append(essentialEvents, SchedProcessExecEventID)
+	}
+	if cfg.Capture.FileWrite {
+		essentialEvents = append(essentialEvents, VfsWriteEventID)
+		essentialEvents = append(essentialEvents, VfsWritevEventID)
+		essentialEvents = append(essentialEvents, __KernelWriteEventID)
+	}
+	if cfg.Capture.Module {
+		essentialEvents = append(essentialEvents, SecurityPostReadFileEventID)
+		essentialEvents = append(essentialEvents, InitModuleEventID)
+	}
+	if cfg.Capture.Mem {
+		essentialEvents = append(essentialEvents, MmapEventID)
+		essentialEvents = append(essentialEvents, MprotectEventID)
+		essentialEvents = append(essentialEvents, MemProtAlertEventID)
+	}
+
+	if cfg.Capture.NetIfaces != nil || cfg.Debug {
+		essentialEvents = append(essentialEvents, SecuritySocketBindEventID)
+	}
+
+	return essentialEvents
 }
