@@ -10,51 +10,60 @@ import (
 
 const bpfCapabilitiesMinKernelVersion = "5.8"
 
-// ensureCapabilities makes sure the program has just the required capabilities to run
+// ensureCapabilities makes sure program runs with required capabilities only
 func ensureCapabilities(OSInfo *helpers.OSInfo, cfg *tracee.Config) error {
 	selfCap, err := capabilities.Self()
 	if err != nil {
 		return err
 	}
 
-	rCaps, err := getBPFCapabilities(selfCap, OSInfo)
+	rCaps, err := getCapabilitiesRequiredByEBPF(selfCap, OSInfo)
 	if err != nil {
 		return err
 	}
-	rCaps = append(rCaps, buildStaticCapabilitiesSet()...)
-	rCaps = append(rCaps, analyzeDynamicCapabilities(cfg)...)
+	rCaps = append(rCaps, getCapabilitiesRequiredByTracee()...)
+	rCaps = append(rCaps, getCapabilitiesRequiredByTraceeConfig(cfg)...)
+	rCaps = append(rCaps, getCapabilitiesRequiredByTraceeEvents(cfg)...)
 
 	rCaps = removeDupCaps(rCaps)
+
 	if err = capabilities.CheckRequired(selfCap, rCaps); err != nil {
 		return err
 	}
 	if err = capabilities.DropUnrequired(selfCap, rCaps); err != nil {
 		return err
 	}
+
 	return nil
 }
 
-// analyzeDynamicCapabilities process the configuration of tracee and determines which capabilities are required to
-// support the functionality requested.
-func analyzeDynamicCapabilities(cfg *tracee.Config) []capability.Cap {
+func getCapabilitiesRequiredByTracee() []capability.Cap {
+	return []capability.Cap{
+		capability.CAP_IPC_LOCK,
+		capability.CAP_SYS_RESOURCE,
+	}
+}
+
+func getCapabilitiesRequiredByTraceeConfig(cfg *tracee.Config) []capability.Cap {
+	caps := make([]capability.Cap, 0)
+
+	if len(cfg.Capture.NetIfaces) > 0 {
+		caps = append(caps, capability.CAP_NET_ADMIN)
+	}
+
+	return caps
+}
+
+func getCapabilitiesRequiredByTraceeEvents(cfg *tracee.Config) []capability.Cap {
 	usedEvents := cfg.Filter.EventsToTrace
 	usedEvents = append(usedEvents, tracee.CreateEssentialEventsList(cfg)...)
+
 	caps := tracee.GetCapabilitiesRequiredByEvents(usedEvents)
 
-	caps = append(caps, analyzeCaptureCapabilities(*cfg.Capture)...)
 	return removeDupCaps(caps)
 }
 
-func analyzeCaptureCapabilities(captureCfg tracee.CaptureConfig) []capability.Cap {
-	var captureCaps []capability.Cap
-	if len(captureCfg.NetIfaces) > 0 {
-		captureCaps = append(captureCaps, capability.CAP_NET_ADMIN)
-	}
-	return captureCaps
-}
-
-// getBPFCapabilities check the minimal capabilities to load eBPF programs based on given capabilities and kernel version
-func getBPFCapabilities(selfCap capability.Capabilities, OSInfo *helpers.OSInfo) ([]capability.Cap, error) {
+func getCapabilitiesRequiredByEBPF(selfCap capability.Capabilities, OSInfo *helpers.OSInfo) ([]capability.Cap, error) {
 	if OSInfo.CompareOSBaseKernelRelease(bpfCapabilitiesMinKernelVersion) <= 0 {
 		bpfCaps := []capability.Cap{
 			capability.CAP_BPF,
@@ -76,14 +85,6 @@ func getBPFCapabilities(selfCap capability.Capabilities, OSInfo *helpers.OSInfo)
 	}
 }
 
-// buildStaticCapabilitiesSet creates list of minimal capabilities that are always required by tracee
-func buildStaticCapabilitiesSet() []capability.Cap {
-	return []capability.Cap{
-		capability.CAP_IPC_LOCK,
-		capability.CAP_SYS_RESOURCE,
-	}
-}
-
 func removeDupCaps(dupCaps []capability.Cap) []capability.Cap {
 	capsMap := make(map[capability.Cap]bool)
 	for _, c := range dupCaps {
@@ -95,5 +96,6 @@ func removeDupCaps(dupCaps []capability.Cap) []capability.Cap {
 		caps[i] = c
 		i++
 	}
+
 	return caps
 }
