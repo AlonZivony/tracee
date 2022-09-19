@@ -105,7 +105,7 @@ func Init(module *bpf.Module, netEnabled bool) (Probes, error) {
 		DebugfsCreateFile:          &traceProbe{eventName: "debugfs_create_file", probeType: kprobe, programName: "trace_debugfs_create_file"},
 		DebugfsCreateDir:           &traceProbe{eventName: "debugfs_create_dir", probeType: kprobe, programName: "trace_debugfs_create_dir"},
 		DeviceAdd:                  &traceProbe{eventName: "device_add", probeType: kprobe, programName: "trace_device_add"},
-		RegisterChrdev:             &traceProbe{eventName: "__register_chrdev", probeType: kprobe, programName: "trace___register_chrdev"},
+		RegisterChrdev:             &traceProbe{eventName: "__register_chrdev", probeType: kprobe, programName: "trace__register_chrdev"},
 		RegisterChrdevRet:          &traceProbe{eventName: "__register_chrdev", probeType: kretprobe, programName: "trace_ret__register_chrdev"},
 		DoInitModule:               &traceProbe{eventName: "do_init_module", probeType: kprobe, programName: "trace_do_init_module"},
 		DoInitModuleRet:            &traceProbe{eventName: "do_init_module", probeType: kretprobe, programName: "trace_ret_do_init_module"},

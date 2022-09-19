@@ -2100,13 +2100,25 @@ static __always_inline void *get_dentry_path_str(struct dentry *dentry)
 
 // INTERNAL: ARGUMENTS -----------------------------------------------------------------------------
 
+#define bpf_printk(fmt, ...)                            \
+({                                                      \
+        char ____fmt[] = fmt;                           \
+        bpf_trace_printk(____fmt, sizeof(____fmt),      \
+                         ##__VA_ARGS__);                \
+})
+
 static __always_inline int save_args(args_t *args, u32 event_id)
 {
     u64 id = event_id;
     u32 tid = bpf_get_current_pid_tgid();
     id = id << 32 | tid;
-    bpf_map_update_elem(&args_map, &id, args, BPF_ANY);
-
+    if (event_id == REGISTER_CHRDEV)
+        bpf_printk("__register_chrdev save args with id %d", id);
+    int ret = bpf_map_update_elem(&args_map, &id, args, BPF_ANY);
+    if (event_id == REGISTER_CHRDEV)
+        bpf_printk("__register_chrdev save args return value %d", ret);
+    else if (event_id == VFS_WRITE)
+        bpf_printk("vfs_write save args return value %d", ret);
     return 0;
 }
 
@@ -2116,6 +2128,9 @@ static __always_inline int load_args(args_t *args, u32 event_id)
     u32 tid = bpf_get_current_pid_tgid();
     u64 id = event_id;
     id = id << 32 | tid;
+
+    if (event_id == REGISTER_CHRDEV)
+        bpf_printk("__register_chrdev load args with id %d", id);
 
     saved_args = bpf_map_lookup_elem(&args_map, &id);
     if (saved_args == 0) {
@@ -2238,12 +2253,20 @@ static __always_inline int save_args_to_submit_buf(event_data_t *data, u64 types
 #define TRACE_ENT_FUNC(name, id)                                                                   \
     int trace_##name(struct pt_regs *ctx)                                                          \
     {                                                                                              \
+        if (id == REGISTER_CHRDEV)                                                                 \
+            bpf_printk("Entered __register_chrdev kprobe");                                        \
         event_data_t data = {};                                                                    \
-        if (!init_event_data(&data, ctx))                                                          \
+        if (!init_event_data(&data, ctx)) {                                                        \
+            if (id == REGISTER_CHRDEV)                                                             \
+                bpf_printk("Exiting __register_chrdev kprobe - failed to init event data");        \
             return 0;                                                                              \
+        }                                                                                          \
                                                                                                    \
-        if (!should_trace(&data))                                                                  \
+        if (!should_trace(&data)) {                                                                \
+             if (id == REGISTER_CHRDEV)                                                            \
+                bpf_printk("Exiting __register_chrdev kprobe - shouldn't trace");                  \
             return 0;                                                                              \
+        }                                                                                          \
                                                                                                    \
         args_t args = {};                                                                          \
         args.args[0] = PT_REGS_PARM1(ctx);                                                         \
@@ -2253,7 +2276,12 @@ static __always_inline int save_args_to_submit_buf(event_data_t *data, u64 types
         args.args[4] = PT_REGS_PARM5(ctx);                                                         \
         args.args[5] = PT_REGS_PARM6(ctx);                                                         \
                                                                                                    \
-        return save_args(&args, id);                                                               \
+        int save_args_res = save_args(&args, id);                                                  \
+                                                                                                   \
+        if (id == REGISTER_CHRDEV)                                                                 \
+            bpf_printk("Exist __register_chrdev kprobe normally with return value %d", save_args_res);\
+                                                                                                   \
+        return save_args_res;                                                                      \
     }
 
 #define TRACE_RET_FUNC(name, id, types, ret)                                                       \
@@ -5144,24 +5172,30 @@ int BPF_KPROBE(trace_device_add)
 }
 
 SEC("kprobe/__register_chrdev")
-TRACE_ENT_FUNC(__register_chrdev, REGISTER_CHRDEV);
+TRACE_ENT_FUNC(_register_chrdev, REGISTER_CHRDEV);
 
 SEC("kretprobe/__register_chrdev")
 int BPF_KPROBE(trace_ret__register_chrdev)
 {
+    bpf_printk("Entered __register_chrdev kretprobe\n");
     args_t saved_args;
     if (load_args(&saved_args, REGISTER_CHRDEV) != 0) {
         // missed entry or not traced
+        bpf_printk("Missed entry - exiting\n");
         return 0;
     }
     del_args(REGISTER_CHRDEV);
 
     event_data_t data = {};
-    if (!init_event_data(&data, ctx))
+    if (!init_event_data(&data, ctx)) {
+        bpf_printk("Couldn't init event - exiting\n");
         return 0;
+    }
 
-    if (!should_trace(&data))
+    if (!should_trace(&data)) {
+        bpf_printk("Shouldn't trace event - exiting\n");
         return 0;
+    }
 
     unsigned int major_number = (unsigned int) saved_args.args[0];
     unsigned int returned_major = PT_REGS_RC(ctx);
@@ -5179,6 +5213,7 @@ int BPF_KPROBE(trace_ret__register_chrdev)
     save_str_to_buf(&data, char_device_name, 2);
     save_to_submit_buf(&data, &char_device_fops, sizeof(void *), 3);
 
+    bpf_printk("Submitting register_chrdev event!\n");
     return events_perf_submit(&data, REGISTER_CHRDEV, 0);
 }
 
