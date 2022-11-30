@@ -1,4 +1,4 @@
-module github.com/aquasecurity/tracee/types
+module github.com/AlonZivony/tracee/types
 
 go 1.17
 
