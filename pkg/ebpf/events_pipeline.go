@@ -163,7 +163,8 @@ func (t *Tracee) decodeEvents(outerCtx context.Context) (<-chan *trace.Event, <-
 			for i := 0; i < int(ctx.Argnum); i++ {
 				argMeta, argVal, err := bufferdecoder.ReadArgFromBuff(ebpfMsgDecoder, eventDefinition.Params)
 				if err != nil {
-					t.handleError(fmt.Errorf("failed to read argument %d of event %s: %v", i, eventDefinition.Name, err))
+					ctx.Ts += t.bootTime
+					t.handleError(fmt.Errorf("failed to read argument %d of event %s after reading %d bytes (context is %d bytes): %v.\nThis is the context: %+v\nThis is the raw buffer: %v", i, eventDefinition.Name, ebpfMsgDecoder.ReadAmountBytes(), ctx.GetSizeBytes(), err, ctx, dataRaw))
 					continue
 				}
 
