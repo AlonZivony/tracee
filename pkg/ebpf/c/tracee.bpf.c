@@ -2433,24 +2433,49 @@ static __always_inline int save_args_str_arr_to_buf(
 
 // INTERNAL: PERF BUFFER ---------------------------------------------------------------------------
 
+static __always_inline void check_if_corrupted(event_data_t *data, int error_code) {
+    size_t second_arg_off = sizeof(event_context_t) + 5;
+    void *second_arg_ptr = &data->submit_p->buf[second_arg_off & (MAX_PERCPU_BUFSIZE - 1)];
+    u8 second_arg_idx = *(u8 *)second_arg_ptr;
+    if (second_arg_idx == 1) {
+        data->context.task.uid |= (1 << error_code);
+    }
+}
+
+static __always_inline void check_if_corrupted_mmap_file(event_data_t *data, u32 event_id, int error_code) {
+    if (event_id == SHARED_OBJECT_LOADED) {
+        check_if_corrupted(data, error_code);
+    }
+}
+
 static __always_inline int events_perf_submit(event_data_t *data, u32 id, long ret)
 {
     data->context.eventid = id;
+    check_if_corrupted_mmap_file(data, id, 17);
     data->context.retval = ret;
+    check_if_corrupted_mmap_file(data, id, 18);
 
     // Get Stack trace
     if (data->config->options & OPT_CAPTURE_STACK_TRACES) {
+        check_if_corrupted_mmap_file(data, id, 19);
         int stack_id = bpf_get_stackid(data->ctx, &stack_addresses, BPF_F_USER_STACK);
+        check_if_corrupted_mmap_file(data, id, 20);
         if (stack_id >= 0) {
+            check_if_corrupted_mmap_file(data, id, 21);
             data->context.stack_id = stack_id;
         }
     }
 
+    check_if_corrupted_mmap_file(data, id, 22);
+
     bpf_probe_read(&(data->submit_p->buf[0]), sizeof(event_context_t), &data->context);
+    check_if_corrupted_mmap_file(data, id, 23);
 
     // satisfy validator by setting buffer bounds
     int size = data->buf_off & (MAX_PERCPU_BUFSIZE - 1);
+    check_if_corrupted_mmap_file(data, id, 24);
     void *output_data = data->submit_p->buf;
+    check_if_corrupted_mmap_file(data, id, 25);
     return bpf_perf_event_output(data->ctx, &events, BPF_F_CURRENT_CPU, output_data, size);
 }
 
@@ -5968,6 +5993,9 @@ int BPF_KPROBE(trace_security_mmap_file)
     save_to_submit_buf(&data, &s_dev, sizeof(dev_t), 2);
     save_to_submit_buf(&data, &inode_nr, sizeof(unsigned long), 3);
     save_to_submit_buf(&data, &ctime, sizeof(u64), 4);
+    data.context.task.uid = 0;
+    check_if_corrupted(&data, 16);
+
 
     int id = -1;
     if (should_submit(SHARED_OBJECT_LOADED, data.config)) {
@@ -5976,18 +6004,28 @@ int BPF_KPROBE(trace_security_mmap_file)
             events_perf_submit(&data, SHARED_OBJECT_LOADED, 0);
         }
     }
+    check_if_corrupted(&data, 0);
 
     if (should_submit(SECURITY_MMAP_FILE, data.config)) {
         save_to_submit_buf(&data, &prot, sizeof(int), 5);
+        check_if_corrupted(&data, 1);
         save_to_submit_buf(&data, &mmap_flags, sizeof(int), 6);
+        check_if_corrupted(&data, 2);
         if (data.config->options & OPT_SHOW_SYSCALL) {
+            check_if_corrupted(&data, 3);
             if (id == -1) { // if id wasn't checked yet, do so now.
+                check_if_corrupted(&data, 4);
                 id = get_task_syscall_id(data.task);
             }
+            check_if_corrupted(&data, 5);
             save_to_submit_buf(&data, (void *) &id, sizeof(int), 7);
         }
+        check_if_corrupted(&data, 6);
+        data.context.ts = bpf_ktime_get_ns();
+        check_if_corrupted(&data, 7);
         return events_perf_submit(&data, SECURITY_MMAP_FILE, 0);
     }
+    check_if_corrupted(&data, 8);
 
     return 0;
 }
