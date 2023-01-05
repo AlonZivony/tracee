@@ -272,6 +272,7 @@ struct task_struct {
     struct signal_struct *signal;
     void *stack;
     struct sighand_struct *sighand;
+    unsigned long nvcsw, nivcsw;
 };
 
 typedef struct {

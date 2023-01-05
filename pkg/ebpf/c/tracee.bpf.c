@@ -958,6 +958,7 @@ enum bpf_log_id
     BPF_LOG_ID_MAP_DELETE_ELEM,
     BPF_LOG_ID_GET_CURRENT_COMM,
     BPF_LOG_ID_TAIL_CALL,
+    BPF_LOG_ID_ALON,
 };
 
 #define BPF_MAX_LOG_FILE_LEN 72
@@ -5988,6 +5989,11 @@ int BPF_KPROBE(trace_security_mmap_file)
     unsigned long prot = (unsigned long) PT_REGS_PARM2(ctx);
     unsigned long mmap_flags = (unsigned long) PT_REGS_PARM3(ctx);
 
+    unsigned long before_nvcsw, before_nivcsw, after_nvcsw, after_nivcsw;
+    struct task_struct *task = (struct task_struct *)bpf_get_current_task();
+    before_nvcsw = READ_KERN(task->nvcsw);
+    before_nivcsw = READ_KERN(task->nivcsw);
+
     save_str_to_buf(&data, file_path, 0);
     save_to_submit_buf(&data, (void *) GET_FIELD_ADDR(file->f_flags), sizeof(int), 1);
     save_to_submit_buf(&data, &s_dev, sizeof(dev_t), 2);
@@ -6023,6 +6029,19 @@ int BPF_KPROBE(trace_security_mmap_file)
         check_if_corrupted(&data, 6);
         data.context.ts = bpf_ktime_get_ns();
         check_if_corrupted(&data, 7);
+
+        size_t second_arg_off = sizeof(event_context_t) + 5;
+        void *second_arg_ptr = &data.submit_p->buf[second_arg_off & (MAX_PERCPU_BUFSIZE - 1)];
+        u8 second_arg_idx = *(u8 *)second_arg_ptr;
+        if (second_arg_idx == 1) {
+            after_nvcsw = READ_KERN(task->nvcsw);
+            after_nivcsw = READ_KERN(task->nivcsw);
+            tracee_log(ctx, BPF_LOG_LVL_ERROR, BPF_LOG_ID_MAP_UPDATE_ELEM, before_nvcsw);
+            tracee_log(ctx, BPF_LOG_LVL_ERROR, BPF_LOG_ID_MAP_UPDATE_ELEM, before_nivcsw);
+            tracee_log(ctx, BPF_LOG_LVL_ERROR, BPF_LOG_ID_MAP_UPDATE_ELEM, after_nvcsw);
+            tracee_log(ctx, BPF_LOG_LVL_ERROR, BPF_LOG_ID_MAP_UPDATE_ELEM, after_nivcsw);
+        }
+
         return events_perf_submit(&data, SECURITY_MMAP_FILE, 0);
     }
     check_if_corrupted(&data, 8);

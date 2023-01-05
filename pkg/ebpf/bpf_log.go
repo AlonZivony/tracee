@@ -25,6 +25,7 @@ const (
 	BPFLogIDMapDeleteElem  // BPF_LOG_ID_MAP_DELETE_ELEM
 	BPFLogIDGetCurrentComm // BPF_LOG_ID_GET_CURRENT_COMM
 	BPFLogIDTailCall       // BPF_LOG_ID_TAIL_CALL
+	BPFLogIDAlon           // BPF_LOG_ID_ALON
 )
 
 var stringMap = map[BPFLogType]string{
@@ -39,6 +40,7 @@ var stringMap = map[BPFLogType]string{
 	BPFLogIDMapDeleteElem:  "BPF_LOG_ID_MAP_DELETE_ELEM",
 	BPFLogIDGetCurrentComm: "BPF_LOG_ID_GET_CURRENT_COMM",
 	BPFLogIDTailCall:       "BPF_LOG_ID_TAIL_CALL",
+	BPFLogIDAlon:           "BPF_LOG_ID_ALON",
 }
 
 var errorMap = map[BPFLogType]string{
@@ -53,6 +55,7 @@ var errorMap = map[BPFLogType]string{
 	BPFLogIDMapDeleteElem:  "Failed to delete a map element",
 	BPFLogIDGetCurrentComm: "Failed to get current command",
 	BPFLogIDTailCall:       "Failed to tail call",
+	BPFLogIDAlon:           "Failed because of Alon's games",
 }
 
 func (b BPFLogType) String() string {
