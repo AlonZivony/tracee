@@ -28,6 +28,7 @@ type Event struct {
 	MountNS               int          `json:"mountNamespace"`
 	PIDNS                 int          `json:"pidNamespace"`
 	ProcessName           string       `json:"processName"`
+	ExecutedBinary        BinaryInfo   `json:"executedBinary"`
 	HostName              string       `json:"hostName"`
 	ContainerID           string       `json:"containerId"`
 	Container             Container    `json:"container,omitempty"`
@@ -42,6 +43,7 @@ type Event struct {
 	Syscall               string       `json:"syscall"`
 	StackAddresses        []uint64     `json:"stackAddresses"`
 	ContextFlags          ContextFlags `json:"contextFlags"`
+	Ancestors             []Process    `json:"ancestors"`
 	Args                  []Argument   `json:"args"` // Arguments are ordered according their appearance in the original event
 	Metadata              *Metadata    `json:"metadata,omitempty"`
 }
@@ -72,6 +74,17 @@ type Metadata struct {
 type ContextFlags struct {
 	ContainerStarted bool `json:"containerStarted"`
 	IsCompat         bool `json:"isCompat"`
+}
+
+type BinaryInfo struct {
+	ExecTime int    `json:"execTime"`
+	Path     string `json:"path"`
+}
+
+type Process struct {
+	ID     int        `json:"id"`
+	Name   string     `json:"name"`
+	Binary BinaryInfo `json:"binary"`
 }
 
 // EventOrigin is where a trace.Event occured, it can either be from the host machine or from a container

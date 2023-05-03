@@ -40,6 +40,7 @@ import (
 	"github.com/aquasecurity/tracee/pkg/metrics"
 	"github.com/aquasecurity/tracee/pkg/pcaps"
 	"github.com/aquasecurity/tracee/pkg/policy"
+	"github.com/aquasecurity/tracee/pkg/proctree"
 	"github.com/aquasecurity/tracee/pkg/signatures/engine"
 	"github.com/aquasecurity/tracee/pkg/utils"
 	"github.com/aquasecurity/tracee/pkg/utils/proc"
@@ -117,6 +118,7 @@ type Tracee struct {
 	// Specific Events Needs
 	triggerContexts trigger.Context
 	readyCallback   func(gocontext.Context)
+	processTree     *proctree.ProcessTree
 }
 
 func (t *Tracee) Stats() *metrics.Stats {
@@ -127,9 +129,9 @@ func (t *Tracee) Stats() *metrics.Stats {
 func GetEssentialEventsList() map[events.ID]eventConfig {
 	// Set essential events
 	return map[events.ID]eventConfig{
-		events.SchedProcessExec: {},
-		events.SchedProcessExit: {},
-		events.SchedProcessFork: {},
+		events.SchedProcessExec: {submit: 0xFFFFFFFFFFFFFFFF},
+		events.SchedProcessExit: {submit: 0xFFFFFFFFFFFFFFFF},
+		events.SchedProcessFork: {submit: 0xFFFFFFFFFFFFFFFF},
 	}
 }
 
@@ -268,6 +270,17 @@ func New(cfg config.Config) (*Tracee, error) {
 				return t, errfmt.WrapError(err)
 			}
 		}
+	}
+
+	t.processTree, err = proctree.NewProcessTree(
+		proctree.ProcessTreeConfig{
+			MaxProcesses:   32768,
+			MaxThreads:     32768,
+			MaxCacheDelete: 100,
+		},
+	)
+	if err != nil {
+		return t, errfmt.WrapError(err)
 	}
 
 	// Add/Drop capabilities to/from the Base ring (always effective)

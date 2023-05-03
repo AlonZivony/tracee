@@ -49,6 +49,11 @@ func (t *Tracee) handleEvents(ctx context.Context) {
 	eventsChan, errc = t.processEvents(ctx, eventsChan)
 	errcList = append(errcList, errc)
 
+	// Process enrichment stage
+	// In this stage we enrich the event with processes information
+	eventsChan, errc = t.enrichProcess(ctx, eventsChan)
+	errcList = append(errcList, errc)
+
 	// Enrichment stage
 	// In this stage container events are enriched with additional runtime data
 	// Events may be enriched in the initial decode state if the enrichment data has been stored in the Containers structure
@@ -610,6 +615,63 @@ func (t *Tracee) getStackAddresses(stackID uint32) ([]uint64, error) {
 	_ = t.StackAddressesMap.DeleteKey(unsafe.Pointer(&stackID))
 
 	return stackAddresses[0:stackCounter], nil
+}
+
+// enrichProcess is a pipeline stage which enrich the event with processes information.
+// This is done using the process tree of Tracee.
+func (t *Tracee) enrichProcess(ctx context.Context, in <-chan *trace.Event) (<-chan *trace.Event, <-chan error) {
+	out := make(chan *trace.Event)
+	errc := make(chan error, 1)
+
+	go func() {
+		defer close(out)
+		defer close(errc)
+
+		for {
+			select {
+			case event := <-in:
+				currentProcess, err := t.processTree.GetProcessInfo(event.HostProcessID, event.Timestamp)
+				if err != nil {
+					logger.Errorw("error enriching event with process info", "error", err)
+				} else {
+					event.ExecutedBinary = trace.BinaryInfo{
+						ExecTime: currentProcess.ExecTime,
+						Path:     currentProcess.ExecutionBinary.Path,
+					}
+
+					// Currently we only add parent information, as each new field we add increase the load significantly.
+					// We don't necessary have information on the parent process, so we do best effort.
+					parentProcess, err := t.processTree.GetProcessInfo(currentProcess.HostPpid, currentProcess.StartTime)
+					if err != nil {
+						var name string
+						// TODO: We should get the name of the thread which forked the process
+						if len(parentProcess.ExistingThreads) > 0 {
+							parentThread, err := t.processTree.GetThreadInfo(parentProcess.ExistingThreads[0], currentProcess.StartTime)
+							if err != nil {
+								name = parentThread.Name
+							}
+						}
+						if err == nil {
+							parent := trace.Process{
+								ID:   parentProcess.HostPid,
+								Name: name,
+								Binary: trace.BinaryInfo{
+									ExecTime: parentProcess.ExecTime,
+									Path:     parentProcess.ExecutionBinary.Path,
+								},
+							}
+							event.Ancestors = append(event.Ancestors, parent)
+						}
+					}
+				}
+				out <- event
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
+
+	return out, errc
 }
 
 // WaitForPipeline waits for results from all error channels.
