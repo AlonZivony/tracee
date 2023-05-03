@@ -41,6 +41,7 @@ import (
 	"github.com/aquasecurity/tracee/pkg/metrics"
 	"github.com/aquasecurity/tracee/pkg/pcaps"
 	"github.com/aquasecurity/tracee/pkg/policy"
+	"github.com/aquasecurity/tracee/pkg/proctree"
 	"github.com/aquasecurity/tracee/pkg/signatures/engine"
 	"github.com/aquasecurity/tracee/pkg/utils"
 	"github.com/aquasecurity/tracee/pkg/utils/proc"
@@ -211,6 +212,7 @@ type Tracee struct {
 	contSymbolsLoader *sharedobjs.ContainersSymbolsLoader
 	// Specific Events Needs
 	triggerContexts trigger.Context
+	processTree     *proctree.ProcessTree
 }
 
 func (t *Tracee) Stats() *metrics.Stats {
@@ -361,6 +363,8 @@ func New(cfg Config) (*Tracee, error) {
 			}
 		}
 	}
+
+	t.processTree = proctree.InitProcessTree()
 
 	// Add/Drop capabilities to/from the Base ring (always effective)
 

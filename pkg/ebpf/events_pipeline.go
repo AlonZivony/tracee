@@ -49,6 +49,9 @@ func (t *Tracee) handleEvents(ctx context.Context) {
 	eventsChan, errc = t.processEvents(ctx, eventsChan)
 	errcList = append(errcList, errc)
 
+	eventsChan, errc = t.processTree.StartProcessingPipeline(ctx, eventsChan)
+	errcList = append(errcList, errc)
+
 	// Enrichment stage
 	// In this stage container events are enriched with additional runtime data
 	// Events may be enriched in the initial decode state if the enrichment data has been stored in the Containers structure
