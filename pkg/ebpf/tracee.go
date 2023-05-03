@@ -222,9 +222,9 @@ func (t *Tracee) Stats() *metrics.Stats {
 func GetEssentialEventsList() map[events.ID]eventConfig {
 	// Set essential events
 	return map[events.ID]eventConfig{
-		events.SchedProcessExec: {},
-		events.SchedProcessExit: {},
-		events.SchedProcessFork: {},
+		events.SchedProcessExec: {submit: 0xFFFFFFFFFFFFFFFF},
+		events.SchedProcessExit: {submit: 0xFFFFFFFFFFFFFFFF},
+		events.SchedProcessFork: {submit: 0xFFFFFFFFFFFFFFFF},
 		events.CgroupMkdir:      {submit: 0xFFFFFFFFFFFFFFFF},
 		events.CgroupRmdir:      {submit: 0xFFFFFFFFFFFFFFFF},
 	}
