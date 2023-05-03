@@ -5,6 +5,7 @@ go 1.19
 require (
 	github.com/IBM/fluent-forward-go v0.2.1
 	github.com/Masterminds/sprig/v3 v3.2.2
+	github.com/RoaringBitmap/roaring v1.2.3
 	github.com/aquasecurity/libbpfgo v0.4.8-libbpf-1.2.0
 	github.com/aquasecurity/libbpfgo/helpers v0.4.6-0.20230321190037-f591a2c5734f
 	github.com/aquasecurity/tracee/types v0.0.0-20230420201357-51135cc9bc89
@@ -37,6 +38,7 @@ require (
 	github.com/AdaLogics/go-fuzz-headers v0.0.0-20230106234847-43070de90fa1 // indirect
 	github.com/AdamKorcz/go-118-fuzz-build v0.0.0-20221215162035-5330a85ea652 // indirect
 	github.com/StackExchange/wmi v0.0.0-20210224194228-fe8f1750fd46 // indirect
+	github.com/bits-and-blooms/bitset v1.2.0 // indirect
 	github.com/containerd/typeurl/v2 v2.1.0 // indirect
 	github.com/cyphar/filepath-securejoin v0.2.3 // indirect
 	github.com/emicklei/go-restful/v3 v3.10.1 // indirect
@@ -60,6 +62,7 @@ require (
 	github.com/mitchellh/go-ps v1.0.0 // indirect
 	github.com/mitchellh/mapstructure v1.5.0 // indirect
 	github.com/moby/sys/sequential v0.5.0 // indirect
+	github.com/mschoch/smat v0.2.0 // indirect
 	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect
 	github.com/pelletier/go-toml/v2 v2.0.6 // indirect
 	github.com/philhofer/fwd v1.1.1 // indirect
@@ -165,5 +168,7 @@ require (
 	gopkg.in/yaml.v3 v3.0.1
 	kernel.org/pub/linux/libs/security/libcap/psx v1.2.64 // indirect
 )
+
+replace github.com/aquasecurity/tracee/types => ./types
 
 replace github.com/kubernetes/cri-api => k8s.io/cri-api v0.23.5-rc.0
