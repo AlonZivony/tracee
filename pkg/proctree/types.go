@@ -2,21 +2,24 @@ package proctree
 
 import (
 	"github.com/RoaringBitmap/roaring"
+	"github.com/aquasecurity/tracee/pkg/utils/types"
+	"sync"
 )
 
 // ProcessTree is a struct which follow the state of processes during runtime in container contexts.
 // The process tree is updated through Tracee's events, and is designed to overcome problems that may arise because
 // of events consumption (like handling lost events).
 type ProcessTree struct {
-	containers         map[string]*containerProcessTree
-	processes          map[int]*processNode
+	containers         types.RWMap[string, *containerProcessTree]
+	processes          types.RWMap[int, *processNode]
 	deadProcessesCache []int
+	processesMutex     *sync.RWMutex
 }
 
 func InitProcessTree() *ProcessTree {
 	return &ProcessTree{
-		containers:         make(map[string]*containerProcessTree),
-		processes:          make(map[int]*processNode),
+		containers:         types.InitRWMap[string, *containerProcessTree](),
+		processes:          types.InitRWMap[int, *processNode](),
 		deadProcessesCache: make([]int, 0),
 	}
 }
@@ -93,7 +96,7 @@ type processNode struct {
 	ExitTime        timestamp
 	ParentProcess   *processNode
 	ChildProcesses  []*processNode
-	Threads         map[int]*threadInfo
+	Threads         types.RWMap[int, *threadInfo]
 	IsAlive         bool
 	Status          roaring.Bitmap // Values type are processInformationStatus
 }

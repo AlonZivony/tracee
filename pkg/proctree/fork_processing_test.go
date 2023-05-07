@@ -1,6 +1,7 @@
 package proctree
 
 import (
+	"github.com/aquasecurity/tracee/pkg/utils/types"
 	"testing"
 
 	"github.com/RoaringBitmap/roaring"
@@ -49,9 +50,9 @@ func TestProcessTree_ProcessFork(t *testing.T) {
 					},
 					ExecTime:    shCtime,
 					ContainerID: TestContainerID,
-					Threads: map[int]*threadInfo{
+					Threads: types.EnvelopeMapWithRW[int, *threadInfo](map[int]*threadInfo{
 						pid: {forkTime: shCtime},
-					},
+					}),
 					IsAlive: true,
 					Status:  *roaring.BitmapOf(uint32(executed), uint32(generalCreated)),
 				}),
@@ -74,9 +75,9 @@ func TestProcessTree_ProcessFork(t *testing.T) {
 						Ppid: 10,
 					},
 					StartTime: shCtime - 100000,
-					Threads: map[int]*threadInfo{
+					Threads: types.EnvelopeMapWithRW[int, *threadInfo](map[int]*threadInfo{
 						pid: {forkTime: shCtime},
-					},
+					}),
 					IsAlive: true,
 					Status:  *roaring.BitmapOf(uint32(forked)),
 				}),
@@ -107,9 +108,9 @@ func TestProcessTree_ProcessFork(t *testing.T) {
 					ExecTime:    shCtime - 100000,
 					StartTime:   shCtime - 100000,
 					ContainerID: "",
-					Threads: map[int]*threadInfo{
+					Threads: types.EnvelopeMapWithRW[int, *threadInfo](map[int]*threadInfo{
 						pid: {forkTime: shCtime},
-					},
+					}),
 					IsAlive: true,
 					Status:  *roaring.BitmapOf(uint32(generalCreated), uint32(forked), uint32(executed)),
 				}),
@@ -151,9 +152,9 @@ func TestProcessTree_ProcessFork(t *testing.T) {
 						Ppid: cppid,
 					},
 					ContainerID: TestContainerID,
-					Threads: map[int]*threadInfo{
+					Threads: types.EnvelopeMapWithRW[int, *threadInfo](map[int]*threadInfo{
 						pid: {forkTime: shCtime},
-					},
+					}),
 					IsAlive: true,
 					Status:  *roaring.BitmapOf(uint32(generalCreated)),
 				}),
@@ -167,7 +168,7 @@ func TestProcessTree_ProcessFork(t *testing.T) {
 			{
 				testName: "Non existing process",
 				tree: ProcessTree{
-					processes: map[int]*processNode{},
+					processes: types.InitRWMap[int, *processNode](),
 				},
 				expected: expectedValues{
 					*roaring.BitmapOf(uint32(forked), uint32(generalCreated)),
@@ -184,10 +185,11 @@ func TestProcessTree_ProcessFork(t *testing.T) {
 				p, err := testCase.tree.getProcess(pid)
 				require.NoError(t, err)
 				assert.Equal(t, testCase.expected.status.ToArray(), p.Status.ToArray())
-				assert.Equal(t, len(testCase.expected.livingThreads), len(p.Threads))
+				assert.Equal(t, len(testCase.expected.livingThreads), len(p.Threads.Keys()))
 				for livingTID, info := range testCase.expected.livingThreads {
-					assert.Contains(t, p.Threads, livingTID)
-					assert.Equal(t, info, p.Threads[livingTID].forkTime)
+					thread, ok := p.Threads.Get(livingTID)
+					assert.True(t, ok, "thread", livingTID)
+					assert.Equal(t, info, thread.forkTime)
 				}
 				assert.Equal(t, forkEvent.HostProcessID, p.InHostIDs.Ppid)
 				assert.Equal(t, forkEvent.ProcessID, p.InContainerIDs.Ppid)
@@ -220,9 +222,9 @@ func TestProcessTree_ProcessFork(t *testing.T) {
 					},
 					ExecTime:    shCtime,
 					ContainerID: TestContainerID,
-					Threads: map[int]*threadInfo{
+					Threads: types.EnvelopeMapWithRW[int, *threadInfo](map[int]*threadInfo{
 						pid: {forkTime: shCtime},
-					},
+					}),
 					IsAlive: true,
 					Status:  *roaring.BitmapOf(uint32(generalCreated), uint32(executed)),
 				}),
@@ -247,9 +249,9 @@ func TestProcessTree_ProcessFork(t *testing.T) {
 					},
 					StartTime:   shCtime,
 					ProcessName: "sh",
-					Threads: map[int]*threadInfo{
+					Threads: types.EnvelopeMapWithRW[int, *threadInfo](map[int]*threadInfo{
 						pid: {forkTime: shCtime},
-					},
+					}),
 					IsAlive: true,
 					Status:  *roaring.BitmapOf(uint32(generalCreated), uint32(forked)),
 				}),
@@ -281,9 +283,9 @@ func TestProcessTree_ProcessFork(t *testing.T) {
 					ExecTime:    shCtime,
 					StartTime:   shCtime,
 					ContainerID: TestContainerID,
-					Threads: map[int]*threadInfo{
+					Threads: types.EnvelopeMapWithRW[int, *threadInfo](map[int]*threadInfo{
 						pid: {forkTime: shCtime},
-					},
+					}),
 					IsAlive: true,
 					Status:  *roaring.BitmapOf(uint32(generalCreated), uint32(forked), uint32(executed)),
 				}),
@@ -305,7 +307,7 @@ func TestProcessTree_ProcessFork(t *testing.T) {
 						Pid: cpid,
 					},
 					Status:  *roaring.BitmapOf(uint32(hollowParent)),
-					Threads: map[int]*threadInfo{},
+					Threads: types.InitRWMap[int, *threadInfo](),
 				}),
 				expected: expectedValues{
 					*roaring.BitmapOf(uint32(generalCreated)),
@@ -328,9 +330,9 @@ func TestProcessTree_ProcessFork(t *testing.T) {
 						Ppid: cppid,
 					},
 					ContainerID: TestContainerID,
-					Threads: map[int]*threadInfo{
+					Threads: types.EnvelopeMapWithRW[int, *threadInfo](map[int]*threadInfo{
 						pid: {forkTime: shCtime},
-					},
+					}),
 					IsAlive: true,
 					Status:  *roaring.BitmapOf(uint32(generalCreated)),
 				}),
@@ -345,7 +347,7 @@ func TestProcessTree_ProcessFork(t *testing.T) {
 			{
 				testName: "Non existing process",
 				tree: ProcessTree{
-					processes: map[int]*processNode{},
+					processes: types.InitRWMap[int, *processNode](),
 				},
 				expected: expectedValues{
 					*roaring.BitmapOf(uint32(generalCreated)),
@@ -363,10 +365,11 @@ func TestProcessTree_ProcessFork(t *testing.T) {
 				p, err := testCase.tree.getProcess(pid)
 				require.NoError(t, err)
 				assert.Equal(t, testCase.expected.status.ToArray(), p.Status.ToArray())
-				assert.Equal(t, len(testCase.expected.livingThreads), len(p.Threads))
+				assert.Equal(t, len(testCase.expected.livingThreads), len(p.Threads.Keys()))
 				for livingTID, info := range testCase.expected.livingThreads {
-					assert.Contains(t, p.Threads, livingTID)
-					assert.Equal(t, info, p.Threads[livingTID].forkTime)
+					thread, ok := p.Threads.Get(livingTID)
+					assert.True(t, ok, "thread", livingTID)
+					assert.Equal(t, info, thread.forkTime)
 				}
 				assert.Equal(t, forkEvent.ProcessName, p.ProcessName)
 				assert.Equal(t, forkEvent.HostProcessID, p.InHostIDs.Pid)
@@ -380,9 +383,9 @@ func TestProcessTree_ProcessFork(t *testing.T) {
 
 func generateProcessTree(p *processNode) ProcessTree {
 	return ProcessTree{
-		processes: map[int]*processNode{
+		processes: types.EnvelopeMapWithRW[int, *processNode](map[int]*processNode{
 			p.InHostIDs.Pid: p,
-		},
+		}),
 	}
 }
 

@@ -2,6 +2,7 @@ package proctree
 
 import (
 	"fmt"
+	"github.com/aquasecurity/tracee/pkg/utils/types"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -187,7 +188,7 @@ func countChildTreeNodes(p *processNode) int {
 
 func buildLinearTree(tps []testProcess, lastProcessIDs ProcessIDs) (ProcessTree, error) {
 	tree := ProcessTree{
-		processes: map[int]*processNode{},
+		processes: types.InitRWMap[int, *processNode](),
 	}
 
 	exitProcessIndex := len(tps) - 1
@@ -199,11 +200,11 @@ func buildLinearTree(tps []testProcess, lastProcessIDs ProcessIDs) (ProcessTree,
 				Pid:  lastProcessIDs.Pid - (exitProcessIndex - i),
 				Ppid: lastProcessIDs.Ppid - (exitProcessIndex - i),
 			},
-			Threads: map[int]*threadInfo{
+			Threads: types.EnvelopeMapWithRW[int, *threadInfo](map[int]*threadInfo{
 				lastProcessIDs.Pid - (exitProcessIndex - i): {},
-			},
+			}),
 		}
-		tree.processes[np.InHostIDs.Pid] = &np
+		tree.processes.Set(np.InHostIDs.Pid, &np)
 		if i != 0 {
 			var err error
 			np.ParentProcess, err = tree.getProcess(lastProcessIDs.Pid - (exitProcessIndex - i + 1))
@@ -223,16 +224,14 @@ func buildWideBranchTree(siblingsNum int, exitIndex int, exitEvent *trace.Event,
 			Pid:  ppid,
 			Ppid: 0,
 		},
-		Threads: map[int]*threadInfo{
-			ppid: {},
-		},
+		Threads:     types.InitRWMap[int, *threadInfo](),
 		ContainerID: exitEvent.Container.ID,
 		IsAlive:     true,
 	}
 	tree := ProcessTree{
-		processes: map[int]*processNode{
+		processes: types.EnvelopeMapWithRW[int, *processNode](map[int]*processNode{
 			parentProcess.InHostIDs.Pid: parentProcess,
-		},
+		}),
 	}
 
 	for i := 0; i < siblingsNum; i++ {
@@ -241,15 +240,15 @@ func buildWideBranchTree(siblingsNum int, exitIndex int, exitEvent *trace.Event,
 				Pid:  exitEvent.HostProcessID - exitIndex + i,
 				Ppid: ppid,
 			},
-			Threads: map[int]*threadInfo{
+			Threads: types.EnvelopeMapWithRW[int, *threadInfo](map[int]*threadInfo{
 				exitEvent.HostThreadID - exitIndex + i: {},
-			},
+			}),
 			ContainerID:   exitEvent.Container.ID,
 			ParentProcess: parentProcess,
 			IsAlive:       true,
 		}
 		parentProcess.ChildProcesses = append(parentProcess.ChildProcesses, cp)
-		tree.processes[cp.InHostIDs.Pid] = cp
+		tree.processes.Set(cp.InHostIDs.Pid, cp)
 	}
 	return tree
 }

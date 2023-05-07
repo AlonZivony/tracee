@@ -2,6 +2,7 @@ package proctree
 
 import (
 	"github.com/RoaringBitmap/roaring"
+	"github.com/aquasecurity/tracee/pkg/utils/types"
 
 	"github.com/aquasecurity/tracee/signatures/helpers"
 	"github.com/aquasecurity/tracee/types/trace"
@@ -64,7 +65,8 @@ func (tree *ProcessTree) processMainThreadFork(event *trace.Event, inHostIDs thr
 	}
 
 	newProcess.addThread(inHostIDs.Tid)
-	newProcess.Threads[inHostIDs.Tid].forkTime = timestamp(event.Timestamp)
+	newThread, _ := newProcess.Threads.Get(inHostIDs.Tid)
+	newThread.forkTime = timestamp(event.Timestamp)
 	newProcess.StartTime = timestamp(event.Timestamp)
 	newProcess.Status.Add(uint32(forked))
 	return nil
@@ -77,7 +79,8 @@ func (tree *ProcessTree) processThreadFork(event *trace.Event, newInHostIDs thre
 		return err
 	}
 	process.addThread(newInHostIDs.Tid)
-	process.Threads[newInHostIDs.Tid].forkTime = timestamp(event.Timestamp)
+	newThread, _ := process.Threads.Get(newInHostIDs.Tid)
+	newThread.forkTime = timestamp(event.Timestamp)
 	return nil
 }
 
@@ -122,7 +125,7 @@ func (tree *ProcessTree) addNewForkedProcess(event *trace.Event, inHostIDs threa
 		StartTime:      timestamp(event.Timestamp),
 		IsAlive:        true,
 		Status:         *roaring.BitmapOf(uint32(forked), uint32(generalCreated)),
-		Threads:        map[int]*threadInfo{},
+		Threads:        types.InitRWMap[int, *threadInfo](),
 	}
 	if newProcess.InContainerIDs.Ppid != 0 &&
 		newProcess.InHostIDs.Pid != newProcess.InHostIDs.Ppid { // Prevent looped references
@@ -133,7 +136,7 @@ func (tree *ProcessTree) addNewForkedProcess(event *trace.Event, inHostIDs threa
 		}
 	}
 	// This will delete old instance if its exit was missing
-	tree.processes[inHostIDs.Pid] = newProcess
+	tree.processes.Set(inHostIDs.Pid, newProcess)
 	return newProcess
 }
 

@@ -15,12 +15,12 @@ func (tree *ProcessTree) processExitEvent(event *trace.Event) error {
 		return err
 	}
 	process, _ := tree.getProcess(event.HostProcessID)
-	thread := process.Threads[event.HostThreadID]
-	if thread == nil {
+	thread, ok := process.Threads.Get(event.HostThreadID)
+	if !ok {
 		thread = &threadInfo{}
 	}
 	thread.exitTime = timestamp(event.Timestamp)
-	process.Threads[event.HostThreadID] = thread
+	process.Threads.Set(event.HostThreadID, thread)
 
 	processGroupExit, err := helpers.GetTraceeBoolArgumentByName(*event, "process_group_exit")
 	if err != nil {
@@ -30,9 +30,10 @@ func (tree *ProcessTree) processExitEvent(event *trace.Event) error {
 	if processGroupExit {
 		process.IsAlive = false
 		process.ExitTime = timestamp(event.Timestamp)
-		for tid, times := range process.Threads {
-			if times.exitTime == 0 {
-				process.Threads[tid].exitTime = timestamp(event.Timestamp)
+		for _, tid := range process.Threads.Keys() {
+			info, ok := process.Threads.Get(tid)
+			if ok && info.exitTime == 0 {
+				info.exitTime = timestamp(event.Timestamp)
 			}
 		}
 		tree.cachedDeleteProcess(process.InHostIDs.Pid)
@@ -68,7 +69,7 @@ func (tree *ProcessTree) deleteProcessFromTree(dpid int) {
 		// Remove process and all dead ancestors so only processes which are alive or with living descendants will remain.
 		cp := p
 		for {
-			delete(tree.processes, cp.InHostIDs.Pid)
+			tree.processes.Delete(cp.InHostIDs.Pid)
 			if cp.ParentProcess == nil {
 				break
 			}

@@ -1,6 +1,7 @@
 package proctree
 
 import (
+	"github.com/aquasecurity/tracee/pkg/utils/types"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -161,20 +162,24 @@ func TestProcessTree_ProcessEvent(t *testing.T) {
 
 	checkProcessForksInfo := func(t *testing.T, p *processNode, forkTime int, exitTime int) {
 		assert.Equal(t, timestamp(forkTimestamp), p.StartTime)
-		assert.Contains(t, p.Threads, pid)
-		assert.Equal(t, timestamp(exitTime), p.Threads[pid].exitTime)
-		assert.Equal(t, timestamp(forkTime), p.Threads[pid].forkTime)
+		thread, ok := p.Threads.Get(pid)
+		assert.True(t, ok, "thread", pid)
+		assert.Equal(t, timestamp(exitTime), thread.exitTime)
+		assert.Equal(t, timestamp(forkTime), thread.forkTime)
 	}
 	checkMissingProcessForkInfo := func(t *testing.T, p *processNode) {
 		assert.Equal(t, timestamp(0), p.StartTime)
-		assert.Contains(t, p.Threads, pid)
-		assert.Equal(t, timestamp(0), p.Threads[pid].exitTime)
-		assert.Equal(t, timestamp(0), p.Threads[pid].forkTime)
+		thread, ok := p.Threads.Get(pid)
+		assert.True(t, ok, "thread", pid)
+		assert.Equal(t, timestamp(0), thread.exitTime)
+		assert.Equal(t, timestamp(0), thread.forkTime)
 	}
 	checkThreadForkInfo := func(t *testing.T, p *processNode, forkTime int, exitTime int) {
-		require.Contains(t, p.Threads, tid)
-		assert.Equal(t, timestamp(exitTime), p.Threads[tid].exitTime)
-		assert.Equal(t, timestamp(forkTime), p.Threads[tid].forkTime)
+		require.Contains(t, p.Threads.Keys(), tid)
+		thread, ok := p.Threads.Get(tid)
+		assert.True(t, ok, "thread", tid)
+		assert.Equal(t, timestamp(exitTime), thread.exitTime)
+		assert.Equal(t, timestamp(forkTime), thread.forkTime)
 	}
 	checkGeneralInfo := func(t *testing.T, p *processNode) {
 		assert.Equal(t, pid, p.InHostIDs.Pid)
@@ -193,10 +198,14 @@ func TestProcessTree_ProcessEvent(t *testing.T) {
 		assert.Equal(t, "", p.ExecutionBinary.Hash)
 	}
 	checkProcessExitInfo := func(t *testing.T, p *processNode) {
-		assert.Equal(t, timestamp(processExitEvent.Timestamp), p.Threads[pid].exitTime)
+		thread, ok := p.Threads.Get(pid)
+		assert.True(t, ok, "thread", pid)
+		assert.Equal(t, timestamp(processExitEvent.Timestamp), thread.exitTime)
 	}
 	checkThreadExitInfo := func(t *testing.T, p *processNode) {
-		assert.Equal(t, timestamp(threadExitEvent.Timestamp), p.Threads[tid].exitTime)
+		thread, ok := p.Threads.Get(tid)
+		assert.True(t, ok, "thread", tid)
+		assert.Equal(t, timestamp(threadExitEvent.Timestamp), thread.exitTime)
 	}
 	checkProcessExitSuccess := func(t *testing.T, tree *ProcessTree) {
 		tree.emptyDeadProcessesCache()
@@ -207,7 +216,7 @@ func TestProcessTree_ProcessEvent(t *testing.T) {
 	t.Run("Ordered flows", func(t *testing.T) {
 		t.Run("Ordered normal flow", func(t *testing.T) {
 			tree := ProcessTree{
-				processes: map[int]*processNode{},
+				processes: types.InitRWMap[int, *processNode](),
 			}
 			var err error
 			require.NoError(t, tree.ProcessEvent(&processForkEvent))
@@ -227,7 +236,7 @@ func TestProcessTree_ProcessEvent(t *testing.T) {
 		})
 		t.Run("Ordered main thread exit first", func(t *testing.T) {
 			tree := ProcessTree{
-				processes: map[int]*processNode{},
+				processes: types.InitRWMap[int, *processNode](),
 			}
 			// Switch between the exit events order for this test
 			var modifiedProcessExitEvent, modifiedThreadExitEvent trace.Event
@@ -252,16 +261,20 @@ func TestProcessTree_ProcessEvent(t *testing.T) {
 			checkExecInfo(t, process)
 			checkThreadForkInfo(t, process, threadForkEvent.Timestamp, 0)
 			require.NoError(t, tree.ProcessEvent(&modifiedProcessExitEvent))
-			assert.Equal(t, timestamp(modifiedProcessExitEvent.Timestamp), process.Threads[pid].exitTime)
+			mainThread, ok := process.Threads.Get(pid)
+			require.True(t, ok, "thread", pid)
+			assert.Equal(t, timestamp(modifiedProcessExitEvent.Timestamp), mainThread.exitTime)
 			require.NoError(t, tree.ProcessEvent(&modifiedThreadExitEvent))
-			assert.Equal(t, timestamp(modifiedThreadExitEvent.Timestamp), process.Threads[tid].exitTime)
+			forkedThread, ok := process.Threads.Get(tid)
+			require.True(t, ok, "thread", tid)
+			assert.Equal(t, timestamp(modifiedThreadExitEvent.Timestamp), forkedThread.exitTime)
 			checkProcessExitSuccess(t, &tree)
 		})
 	})
 	t.Run("Unordered events flows", func(t *testing.T) {
 		t.Run("Unordered exec before main fork", func(t *testing.T) {
 			tree := ProcessTree{
-				processes: map[int]*processNode{},
+				processes: types.InitRWMap[int, *processNode](),
 			}
 			var err error
 			require.NoError(t, tree.ProcessEvent(&execEvent))
@@ -281,7 +294,7 @@ func TestProcessTree_ProcessEvent(t *testing.T) {
 		})
 		t.Run("Unordered fork thread before main fork", func(t *testing.T) {
 			tree := ProcessTree{
-				processes: map[int]*processNode{},
+				processes: types.InitRWMap[int, *processNode](),
 			}
 			var err error
 			require.NoError(t, tree.ProcessEvent(&threadForkEvent))
@@ -301,7 +314,7 @@ func TestProcessTree_ProcessEvent(t *testing.T) {
 		})
 		t.Run("Unordered exit thread before thread fork", func(t *testing.T) {
 			tree := ProcessTree{
-				processes: map[int]*processNode{},
+				processes: types.InitRWMap[int, *processNode](),
 			}
 			var err error
 			require.NoError(t, tree.ProcessEvent(&processForkEvent))
@@ -320,7 +333,7 @@ func TestProcessTree_ProcessEvent(t *testing.T) {
 		})
 		t.Run("Unordered exit main thread before process fork", func(t *testing.T) {
 			tree := ProcessTree{
-				processes: map[int]*processNode{},
+				processes: types.InitRWMap[int, *processNode](),
 			}
 			var err error
 			require.NoError(t, tree.ProcessEvent(&processExitEvent))
@@ -342,7 +355,7 @@ func TestProcessTree_ProcessEvent(t *testing.T) {
 	t.Run("Missing event flow", func(t *testing.T) {
 		t.Run("Missing main fork event", func(t *testing.T) {
 			tree := ProcessTree{
-				processes: map[int]*processNode{},
+				processes: types.InitRWMap[int, *processNode](),
 			}
 			var err error
 			require.NoError(t, tree.ProcessEvent(&execEvent))
@@ -361,7 +374,7 @@ func TestProcessTree_ProcessEvent(t *testing.T) {
 		})
 		t.Run("Missing exec event", func(t *testing.T) {
 			tree := ProcessTree{
-				processes: map[int]*processNode{},
+				processes: types.InitRWMap[int, *processNode](),
 			}
 			var err error
 			require.NoError(t, tree.ProcessEvent(&processForkEvent))
@@ -380,7 +393,7 @@ func TestProcessTree_ProcessEvent(t *testing.T) {
 		})
 		t.Run("Missing thread fork event", func(t *testing.T) {
 			tree := ProcessTree{
-				processes: map[int]*processNode{},
+				processes: types.InitRWMap[int, *processNode](),
 			}
 			var err error
 			require.NoError(t, tree.ProcessEvent(&processForkEvent))
@@ -390,7 +403,7 @@ func TestProcessTree_ProcessEvent(t *testing.T) {
 			checkGeneralInfo(t, process)
 			checkProcessForksInfo(t, process, processForkEvent.Timestamp, 0)
 			checkExecInfo(t, process)
-			assert.NotContains(t, process.Threads, tid)
+			assert.NotContains(t, process.Threads.Keys(), tid)
 			require.NoError(t, tree.ProcessEvent(&threadExitEvent))
 			checkThreadExitInfo(t, process)
 			require.NoError(t, tree.ProcessEvent(&processExitEvent))
@@ -399,7 +412,7 @@ func TestProcessTree_ProcessEvent(t *testing.T) {
 		})
 		t.Run("Missing thread exit", func(t *testing.T) {
 			tree := ProcessTree{
-				processes: map[int]*processNode{},
+				processes: types.InitRWMap[int, *processNode](),
 			}
 			var err error
 			require.NoError(t, tree.ProcessEvent(&processForkEvent))
@@ -413,12 +426,14 @@ func TestProcessTree_ProcessEvent(t *testing.T) {
 			checkExecInfo(t, process)
 			require.NoError(t, tree.ProcessEvent(&processExitEvent))
 			checkProcessExitInfo(t, process)
-			assert.Equal(t, timestamp(processExitEvent.Timestamp), process.Threads[tid].exitTime)
+			forkedThread, ok := process.Threads.Get(tid)
+			require.True(t, ok, "thread", tid)
+			assert.Equal(t, timestamp(processExitEvent.Timestamp), forkedThread.exitTime)
 			checkProcessExitSuccess(t, &tree)
 		})
 		t.Run("Missing main thread exit", func(t *testing.T) {
 			tree := ProcessTree{
-				processes: map[int]*processNode{},
+				processes: types.InitRWMap[int, *processNode](),
 			}
 			var err error
 			require.NoError(t, tree.ProcessEvent(&processForkEvent))
@@ -432,11 +447,13 @@ func TestProcessTree_ProcessEvent(t *testing.T) {
 			checkExecInfo(t, process)
 			require.NoError(t, tree.ProcessEvent(&threadExitEvent))
 			checkThreadExitInfo(t, process)
-			assert.Equal(t, timestamp(0), process.Threads[pid].exitTime)
+			mainThread, ok := process.Threads.Get(pid)
+			require.True(t, ok, "thread", pid)
+			assert.Equal(t, timestamp(0), mainThread.exitTime)
 			tree.emptyDeadProcessesCache()
 			process, err = tree.getProcess(pid)
 			assert.NoError(t, err)
-			assert.Contains(t, process.Threads, pid)
+			assert.Contains(t, process.Threads.Keys(), pid)
 		})
 	})
 }

@@ -2,6 +2,7 @@ package proctree
 
 import (
 	"github.com/RoaringBitmap/roaring"
+	"github.com/aquasecurity/tracee/pkg/utils/types"
 
 	"github.com/aquasecurity/tracee/types/trace"
 )
@@ -24,11 +25,11 @@ func (tree *ProcessTree) addGeneralEventProcess(event *trace.Event) *processNode
 			Mount: event.MountNS,
 		},
 		ContainerID: event.Container.ID,
-		Threads:     map[int]*threadInfo{},
+		Threads:     types.InitRWMap[int, *threadInfo](),
 		IsAlive:     true,
 		Status:      *roaring.BitmapOf(uint32(generalCreated)),
 	}
-	tree.processes[event.HostProcessID] = process
+	tree.processes.Set(event.HostProcessID, process)
 	return process
 }
 
@@ -48,7 +49,7 @@ func (tree *ProcessTree) generateParentProcess(process *processNode) *processNod
 				},
 				Status: *roaring.BitmapOf(uint32(hollowParent)),
 			}
-			tree.processes[parentProcess.InHostIDs.Pid] = parentProcess
+			tree.processes.Set(parentProcess.InHostIDs.Pid, parentProcess)
 		}
 		process.ParentProcess = parentProcess
 		parentProcess.ChildProcesses = append(parentProcess.ChildProcesses, process)
@@ -77,16 +78,16 @@ func fillHollowProcessInfo(
 	p.InContainerIDs = inContainerIDs
 	p.ContainerID = containerID
 	p.ProcessName = processName
-	p.Threads = map[int]*threadInfo{}
+	p.Threads = types.InitRWMap[int, *threadInfo]()
 	p.IsAlive = true
 	p.Status.Add(uint32(generalCreated))
 	p.Status.Remove(uint32(hollowParent))
 }
 
 func (p *processNode) addThread(tid int) {
-	t, exist := p.Threads[tid]
+	t, exist := p.Threads.Get(tid)
 	if !exist {
-		p.Threads[tid] = &threadInfo{}
+		p.Threads.Set(tid, &threadInfo{})
 	} else {
 		if t.exitTime == 0 {
 			// Update thread exit time to match process if process exited

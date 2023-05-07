@@ -56,7 +56,7 @@ func (tree *ProcessTree) StartProcessingPipeline(ctx gocontext.Context, in <-cha
 }
 
 func (tree *ProcessTree) getProcess(hostProcessID int) (*processNode, error) {
-	process, ok := tree.processes[hostProcessID]
+	process, ok := tree.processes.Get(hostProcessID)
 	if !ok {
 		return nil, fmt.Errorf("no process with given ID is recorded")
 	}
@@ -88,8 +88,9 @@ func (p *processNode) export(time int) ProcessInfo {
 			childrenIDs = append(childrenIDs, child.InHostIDs.Pid)
 		}
 	}
-	for tid, threadExitTime := range p.Threads {
-		if (threadExitTime.exitTime == 0 ||
+	for _, tid := range p.Threads.Keys() {
+		threadExitTime, ok := p.Threads.Get(tid)
+		if ok && (threadExitTime.exitTime == 0 ||
 			time < int(threadExitTime.exitTime)) && int(threadExitTime.forkTime) < time {
 			threadIDs = append(threadIDs, tid)
 		}

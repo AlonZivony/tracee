@@ -1,6 +1,7 @@
 package proctree
 
 import (
+	"github.com/aquasecurity/tracee/pkg/utils/types"
 	"testing"
 
 	"github.com/RoaringBitmap/roaring"
@@ -54,7 +55,7 @@ func TestProcessTree_ProcessExec(t *testing.T) {
 		{
 			testName: "empty tree",
 			initialTree: ProcessTree{
-				processes: map[int]*processNode{},
+				processes: types.InitRWMap[int, *processNode](),
 			},
 			expectedProcess: processNode{
 				InHostIDs: ProcessIDs{
@@ -80,7 +81,7 @@ func TestProcessTree_ProcessExec(t *testing.T) {
 		{
 			testName: "forked event executed",
 			initialTree: ProcessTree{
-				processes: map[int]*processNode{
+				processes: types.EnvelopeMapWithRW[int, *processNode](map[int]*processNode{
 					execEvent.HostProcessID: {
 						InHostIDs: ProcessIDs{
 							Pid:  execEvent.HostProcessID,
@@ -94,11 +95,11 @@ func TestProcessTree_ProcessExec(t *testing.T) {
 						StartTime:   100000000,
 						ProcessName: "bash",
 						Status:      *roaring.BitmapOf(uint32(generalCreated), uint32(forked)),
-						Threads: map[int]*threadInfo{
+						Threads: types.EnvelopeMapWithRW[int, *threadInfo](map[int]*threadInfo{
 							execEvent.HostProcessID: {},
-						},
+						}),
 					},
-				},
+				}),
 			},
 			expectedProcess: processNode{
 				InHostIDs: ProcessIDs{
@@ -124,7 +125,7 @@ func TestProcessTree_ProcessExec(t *testing.T) {
 		{
 			testName: "Double execve process",
 			initialTree: ProcessTree{
-				processes: map[int]*processNode{
+				processes: types.EnvelopeMapWithRW[int, *processNode](map[int]*processNode{
 					execEvent.HostProcessID: {
 						InHostIDs: ProcessIDs{
 							Pid:  execEvent.HostProcessID,
@@ -142,11 +143,11 @@ func TestProcessTree_ProcessExec(t *testing.T) {
 							Path:  "/bin/sleep",
 							Ctime: 100,
 						},
-						Threads: map[int]*threadInfo{
+						Threads: types.EnvelopeMapWithRW[int, *threadInfo](map[int]*threadInfo{
 							execEvent.HostProcessID: {},
-						},
+						}),
 					},
-				},
+				}),
 			},
 			expectedProcess: processNode{
 				InHostIDs: ProcessIDs{
@@ -172,7 +173,7 @@ func TestProcessTree_ProcessExec(t *testing.T) {
 		{
 			testName: "General event generate process",
 			initialTree: ProcessTree{
-				processes: map[int]*processNode{
+				processes: types.EnvelopeMapWithRW[int, *processNode](map[int]*processNode{
 					execEvent.HostProcessID: {
 						InHostIDs: ProcessIDs{
 							Pid:  execEvent.HostProcessID,
@@ -185,11 +186,11 @@ func TestProcessTree_ProcessExec(t *testing.T) {
 						ContainerID: TestContainerID,
 						ProcessName: execEvent.ProcessName,
 						Status:      *roaring.BitmapOf(uint32(generalCreated)),
-						Threads: map[int]*threadInfo{
+						Threads: types.EnvelopeMapWithRW[int, *threadInfo](map[int]*threadInfo{
 							execEvent.HostProcessID: {},
-						},
+						}),
 					},
-				},
+				}),
 			},
 			expectedProcess: processNode{
 				InHostIDs: ProcessIDs{
