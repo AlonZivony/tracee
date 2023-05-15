@@ -60,9 +60,9 @@ func (tree *ProcessTree) processMainThreadFork(event *trace.Event, inHostIDs thr
 	if !newProcess.Status.Contains(uint32(executed)) {
 		tree.copyParentBinaryInfo(newProcess)
 	}
-	if newProcess.Status.Contains(uint32(hollowParent)) {
-		fillHollowProcessInfo(
-			newProcess,
+	if newProcess.Status.Contains(uint32(hollowParent)) &&
+		!newProcess.Status.Contains(uint32(generalCreated)) {
+		newProcess.fillGeneralInfoForHollow(
 			inHostIDs,
 			inContainerIDs.ProcessIDs,
 			event.Container.ID,
@@ -70,9 +70,9 @@ func (tree *ProcessTree) processMainThreadFork(event *trace.Event, inHostIDs thr
 		)
 	}
 
-	newProcess.addThread(inHostIDs.Tid)
-	newThread, _ := newProcess.Threads.Get(inHostIDs.Tid)
-	newThread.forkTime = timestamp(event.Timestamp)
+	newThread := newProcess.addThreadBasic(inHostIDs.Tid)
+	newThread.fillForkInfo(timestamp(event.Timestamp))
+	// TODO: Add namespaces from parent thread to new one
 	newProcess.StartTime = timestamp(event.Timestamp)
 	newProcess.Status.Add(uint32(forked))
 	return nil
@@ -86,9 +86,11 @@ func (tree *ProcessTree) processThreadFork(event *trace.Event, newInHostIDs thre
 	}
 	process.Mutex.Lock()
 	defer process.Mutex.Unlock()
-	process.addThread(newInHostIDs.Tid)
+	process.addThreadBasic(newInHostIDs.Tid)
 	newThread, _ := process.Threads.Get(newInHostIDs.Tid)
+	newThread.Mutex.Lock()
 	newThread.forkTime = timestamp(event.Timestamp)
+	newThread.Mutex.Unlock()
 	return nil
 }
 
@@ -141,7 +143,7 @@ func (tree *ProcessTree) addNewForkedProcess(
 		StartTime:      timestamp(event.Timestamp),
 		IsAlive:        true,
 		Status:         *roaring.BitmapOf(uint32(forked), uint32(generalCreated)),
-		Threads:        types.InitRWMap[int, *threadInfo](),
+		Threads:        types.InitRWMap[int, *threadNode](),
 	}
 	if newProcess.InContainerIDs.Ppid != 0 &&
 		newProcess.InHostIDs.Pid != newProcess.InHostIDs.Ppid { // Prevent looped references

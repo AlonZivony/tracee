@@ -58,3 +58,9 @@ func (m *RWMap[K, V]) Values() []V {
 	m.mutex.RUnlock()
 	return values
 }
+
+func (m *RWMap[K, V]) Clear() {
+	m.mutex.RLock()
+	maps.Clear[map[K]V](m.m)
+	m.mutex.RUnlock()
+}

@@ -63,6 +63,7 @@ const (
 func (t *Tracee) processEvent(event *trace.Event) []error {
 	eventId := events.ID(event.EventID)
 	processors := t.eventProcessor[eventId]
+	processors = append(processors, t.eventProcessor[events.AllEventsWildcard]...)
 	errs := []error{}
 	for _, procFunc := range processors {
 		err := procFunc(event)
@@ -108,6 +109,7 @@ func (t *Tracee) registerEventProcessors() {
 	t.RegisterEventProcessor(events.SecurityPostReadFile, processKernelReadFile)
 	t.RegisterEventProcessor(events.PrintMemDump, t.processTriggeredEvent)
 	t.RegisterEventProcessor(events.PrintMemDump, t.processPrintMemDump)
+	t.RegisterEventProcessor(events.PrintMemDump, t.processTree.ProcessEvent)
 }
 
 // convertArgMonotonicToEpochTime change time from monotonic relative time to time since epoch.
@@ -120,7 +122,11 @@ func (t *Tracee) convertArgMonotonicToEpochTime(event *trace.Event, argName stri
 	}
 	relTime, ok := relTimeArg.Value.(uint64)
 	if !ok {
-		return errfmt.Errorf("argument %s of event %s is not of type uint64", argName, event.EventName)
+		return errfmt.Errorf(
+			"argument %s of event %s is not of type uint64",
+			argName,
+			event.EventName,
+		)
 	}
 	relTimeArg.Value = relTime + t.bootTime
 	return nil
@@ -245,22 +251,30 @@ func (t *Tracee) processSchedProcessExec(event *trace.Event) error {
 					// might not always have been enabled by event capabilities
 					// requirements (there is no "exec hash" event) from
 					// SchedProcessExec event.
-					onceExecHash.Do(func() {
-						err = capabilities.GetInstance().BaseRingAdd(cap.SYS_PTRACE)
-						if err != nil {
-							logger.Errorw("error adding cap.SYS_PTRACE to base ring", "error", err)
-						}
-					})
+					onceExecHash.Do(
+						func() {
+							err = capabilities.GetInstance().BaseRingAdd(cap.SYS_PTRACE)
+							if err != nil {
+								logger.Errorw(
+									"error adding cap.SYS_PTRACE to base ring",
+									"error",
+									err,
+								)
+							}
+						},
+					)
 					currentHash, err = computeFileHashAtPath(sourceFilePath)
 					if err == nil {
 						hashInfoObj = fileExecInfo{castedSourceFileCtime, currentHash}
 						t.fileHashes.Add(capturedFileID, hashInfoObj)
 					}
 				}
-				event.Args = append(event.Args, trace.Argument{
-					ArgMeta: trace.ArgMeta{Name: "sha256", Type: "const char*"},
-					Value:   currentHash,
-				})
+				event.Args = append(
+					event.Args, trace.Argument{
+						ArgMeta: trace.ArgMeta{Name: "sha256", Type: "const char*"},
+						Value:   currentHash,
+					},
+				)
 				event.ArgsNum++
 			}
 			if true { // so loop is conditionally terminated (#SA4044)
@@ -383,7 +397,10 @@ func (t *Tracee) processHookedProcFops(event *trace.Event) error {
 		case Iterate:
 			functionName = "iterate"
 		}
-		hookedFops = append(hookedFops, trace.HookedSymbolData{SymbolName: functionName, ModuleOwner: hookingFunction.Owner})
+		hookedFops = append(
+			hookedFops,
+			trace.HookedSymbolData{SymbolName: functionName, ModuleOwner: hookingFunction.Owner},
+		)
 	}
 	event.Args[0].Value = hookedFops
 	return nil

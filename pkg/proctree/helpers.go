@@ -26,12 +26,33 @@ func (tree *ProcessTree) addGeneralEventProcess(event *trace.Event) *processNode
 			Mount: event.MountNS,
 		},
 		ContainerID: event.Container.ID,
-		Threads:     types.InitRWMap[int, *threadInfo](),
+		Threads:     types.InitRWMap[int, *threadNode](),
 		IsAlive:     true,
 		Status:      *roaring.BitmapOf(uint32(generalCreated)),
 	}
 	tree.processes.Set(event.HostProcessID, process)
 	return process
+}
+
+// addGeneralEventThread generate a new thread with information that could be received from any
+// event from the thread
+func (p *processNode) addGeneralEventThread(event *trace.Event) *threadNode {
+	thread := p.addThreadBasic(event.HostThreadID)
+
+	p.Mutex.RLock()
+	exitTime := p.ExitTime
+	p.Mutex.RUnlock()
+
+	thread.Mutex.Lock()
+	if !thread.Status.Contains(uint32(generalCreated)) {
+		ns := NamespacesIDs{
+			Pid:   event.PIDNS,
+			Mount: event.MountNS,
+		}
+		thread.fillGeneralInfo(ns, exitTime)
+	}
+	thread.Mutex.Unlock()
+	return thread
 }
 
 // generateParentProcess add a parent process to given process from tree if existing or creates
@@ -49,7 +70,7 @@ func (tree *ProcessTree) generateParentProcess(process *processNode) *processNod
 					Pid: process.InContainerIDs.Ppid,
 				},
 				Status:  *roaring.BitmapOf(uint32(hollowParent)),
-				Threads: types.InitRWMap[int, *threadInfo](),
+				Threads: types.InitRWMap[int, *threadNode](),
 			}
 			tree.processes.Set(parentProcess.InHostIDs.Pid, parentProcess)
 		}
@@ -59,58 +80,4 @@ func (tree *ProcessTree) generateParentProcess(process *processNode) *processNod
 		parentProcess.Mutex.Unlock()
 	}
 	return process
-}
-
-// fillHollowParentProcessGeneralEvent fill a hollow parent process node with information from a
-// general event invoked by the hollowParent status process.
-// Hollow parent is a node of a process created upon receiving event with unregistered parent
-// process.To follow processes relations,
-// we create a node for the parent to connect it to received event, but with a very basic info.
-// This function purpose is to fill missing information about the hollow process after receiving an
-// event from it.
-func fillHollowParentProcessGeneralEvent(p *processNode, event *trace.Event) {
-	fillHollowProcessInfo(
-		p,
-		threadIDs{
-			ProcessIDs: ProcessIDs{Pid: event.HostProcessID, Ppid: event.HostParentProcessID},
-			Tid:        event.HostThreadID,
-		},
-		ProcessIDs{Pid: event.ProcessID, Ppid: event.ParentProcessID},
-		event.ProcessName,
-		event.Container.ID,
-	)
-}
-
-// fillHollowProcessInfo is an util function to fill missing general information in process node
-// with the status of hollowParent.
-func fillHollowProcessInfo(
-	p *processNode,
-	inHostIDs threadIDs,
-	inContainerIDs ProcessIDs,
-	processName string,
-	containerID string,
-) {
-	p.InHostIDs = inHostIDs.ProcessIDs
-	p.InContainerIDs = inContainerIDs
-	p.ContainerID = containerID
-	p.ProcessName = processName
-	p.Threads = types.InitRWMap[int, *threadInfo]()
-	p.IsAlive = true
-	p.Status.Add(uint32(generalCreated))
-	p.Status.Remove(uint32(hollowParent))
-}
-
-// addThread add the thread to the process node if it does not exist.
-// The function also tries to synchronize the thread exit time with the process if filled after
-// process exit.
-func (p *processNode) addThread(tid int) {
-	t, exist := p.Threads.Get(tid)
-	if !exist {
-		t = &threadInfo{}
-		p.Threads.Set(tid, t)
-	}
-	if t.exitTime == 0 {
-		// Update thread exit time to match process if process exited
-		t.exitTime = p.ExitTime
-	}
 }

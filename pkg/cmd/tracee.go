@@ -118,7 +118,7 @@ func PrintEventList(printRulesSet bool) {
 	b.WriteString("\n\nOther Events: " + titleHeaderPadFirst + "Sets:" + titleHeaderPadSecond + "Arguments:\n")
 	b.WriteString("____________  " + titleHeaderPadFirst + "____ " + titleHeaderPadSecond + "_________\n\n")
 	printEventGroup(&b, events.SysEnter, events.MaxCommonID)
-	printEventGroup(&b, events.InitNamespaces, events.MaxUserSpace)
+	printEventGroup(&b, events.InitNamespaces, events.MaxDerived)
 
 	titleHeaderPadFirst = getPad(padChar, 15)
 	b.WriteString("\n\nNetwork Events: " + titleHeaderPadFirst + "Sets:" + titleHeaderPadSecond + "Arguments:\n")
@@ -134,7 +134,12 @@ func printEventGroup(b *strings.Builder, firstEventID, lastEventID events.ID) {
 			continue
 		}
 		if event.Sets != nil {
-			eventSets := fmt.Sprintf("%-30s %-40s %s\n", event.Name, fmt.Sprintf("%v", event.Sets), getFormattedEventParams(i))
+			eventSets := fmt.Sprintf(
+				"%-30s %-40s %s\n",
+				event.Name,
+				fmt.Sprintf("%v", event.Sets),
+				getFormattedEventParams(i),
+			)
 			b.WriteString(eventSets)
 		} else {
 			b.WriteString(event.Name + "\n")

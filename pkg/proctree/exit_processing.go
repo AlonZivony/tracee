@@ -20,14 +20,8 @@ func (tree *ProcessTree) processExitEvent(event *trace.Event) error {
 	if err != nil {
 		return fmt.Errorf("process was inserted to the treee but is missing right after")
 	}
-	process.Mutex.Lock()
-	defer process.Mutex.Unlock()
-	thread, ok := process.Threads.Get(event.HostThreadID)
-	if !ok {
-		thread = &threadInfo{}
-	}
-	thread.exitTime = timestamp(event.Timestamp)
-	process.Threads.Set(event.HostThreadID, thread)
+	thread := process.addThreadBasic(event.HostThreadID)
+	thread.fillExitInfo(timestamp(event.Timestamp))
 
 	processGroupExit, err := helpers.GetTraceeBoolArgumentByName(*event, "process_group_exit")
 	if err != nil {
@@ -35,12 +29,11 @@ func (tree *ProcessTree) processExitEvent(event *trace.Event) error {
 	}
 
 	if processGroupExit {
-		process.IsAlive = false
-		process.ExitTime = timestamp(event.Timestamp)
+		process.fillExitInfo(timestamp(event.Timestamp))
 		for _, tid := range process.Threads.Keys() {
-			info, ok := process.Threads.Get(tid)
-			if ok && info.exitTime == 0 {
-				info.exitTime = timestamp(event.Timestamp)
+			tnode, ok := process.Threads.Get(tid)
+			if ok {
+				tnode.fillDefaultExitInfo(timestamp(event.Timestamp))
 			}
 		}
 		tree.cachedDeleteProcess(process.InHostIDs.Pid)
@@ -100,15 +93,17 @@ func (tree *ProcessTree) forceDeleteProcessFromTree(dpid int) {
 	if err != nil {
 		return
 	}
-	p.Mutex.Lock()
-	for _, childProcess := range p.ChildProcesses {
-		childProcess.Mutex.Lock()
-		if childProcess.ParentProcess == p {
-			childProcess.ParentProcess = nil
+	p.Mutex.RLock()
+	children := p.ChildProcesses
+	p.Mutex.RUnlock()
+	for _, childProcess := range children {
+		childProcess.Mutex.RLock()
+		childParentProcess := childProcess.ParentProcess
+		childProcess.Mutex.RUnlock()
+		if childParentProcess == p {
+			childProcess.disconnectFromParent()
 		}
-		childProcess.Mutex.Unlock()
 	}
-	p.Mutex.Unlock()
 	tree.deleteNodeAndDeadAncestorsFromTree(p)
 }
 
@@ -118,27 +113,25 @@ func (tree *ProcessTree) deleteNodeAndDeadAncestorsFromTree(pn *processNode) {
 	for {
 		pn.Mutex.RLock()
 		tree.processes.Delete(pn.InHostIDs.Pid)
-		if pn.ParentProcess == nil {
-			break
-		}
+		threads := pn.Threads.Values()
 		parent := pn.ParentProcess
 		pn.Mutex.RUnlock()
-		parent.Mutex.Lock()
-		for i, childProcess := range parent.ChildProcesses {
-			if childProcess == pn {
-				parent.ChildProcesses = append(
-					parent.ChildProcesses[:i],
-					parent.ChildProcesses[i+1:]...,
-				)
-				break
-			}
-		}
-		// If parent is still alive, or it has living children nodes, we don't want to delete it
-		if parent.IsAlive || len(parent.ChildProcesses) > 0 {
-			break
-		}
 
-		pn = parent
+		pn.disconnectFromThreads()
+		for _, thread := range threads {
+			thread.disconnectFromProcess()
+		}
+		if parent == nil {
+			return
+		}
+		parent.disconnectChild(pn)
+		parent.Mutex.RLock()
+		// If parent is still alive, or it has living children nodes, we don't want to delete it
+		shouldKeepParent := parent.IsAlive || len(parent.ChildProcesses) > 0
 		parent.Mutex.Unlock()
+		if shouldKeepParent {
+			return
+		}
+		pn = parent
 	}
 }

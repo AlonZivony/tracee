@@ -36,15 +36,46 @@ func TestProcessTree_ProcessExec(t *testing.T) {
 		ReturnValue:         0,
 		StackAddresses:      nil,
 		Args: []trace.Argument{
-			{ArgMeta: trace.ArgMeta{Name: "cmdpath", Type: "const char*"}, Value: interface{}("/bin/ls")},
-			{ArgMeta: trace.ArgMeta{Name: "argv", Type: "const char**"}, Value: interface{}(execCmd)},
-			{ArgMeta: trace.ArgMeta{Name: "env", Type: "const char**"}, Value: interface{}([]string{"HOSTNAME=aac1fa454fcd", "SHLVL=1", "HOME=/root", "TERM=xterm", "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin", "PWD=/"})},
-			{ArgMeta: trace.ArgMeta{Name: "pathname", Type: "const char*"}, Value: interface{}(execBinaryPath)},
+			{
+				ArgMeta: trace.ArgMeta{Name: "cmdpath", Type: "const char*"},
+				Value:   interface{}("/bin/ls"),
+			},
+			{
+				ArgMeta: trace.ArgMeta{Name: "argv", Type: "const char**"},
+				Value:   interface{}(execCmd),
+			},
+			{
+				ArgMeta: trace.ArgMeta{Name: "env", Type: "const char**"},
+				Value: interface{}([]string{
+					"HOSTNAME=aac1fa454fcd",
+					"SHLVL=1",
+					"HOME=/root",
+					"TERM=xterm",
+					"PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+					"PWD=/",
+				}),
+			},
+			{
+				ArgMeta: trace.ArgMeta{Name: "pathname", Type: "const char*"},
+				Value:   interface{}(execBinaryPath),
+			},
 			{ArgMeta: trace.ArgMeta{Name: "dev", Type: "dev_t"}, Value: interface{}(uint32(46))},
-			{ArgMeta: trace.ArgMeta{Name: "inode", Type: "unsigned long"}, Value: interface{}(uint64(576807))},
-			{ArgMeta: trace.ArgMeta{Name: "invoked_from_kernel", Type: "int"}, Value: interface{}(0)},
-			{ArgMeta: trace.ArgMeta{Name: "ctime", Type: "unsigned long"}, Value: interface{}(uint64(execBinaryCtime))},
-			{ArgMeta: trace.ArgMeta{Name: "sha256", Type: "const char*"}, Value: interface{}(execBinaryHash)},
+			{
+				ArgMeta: trace.ArgMeta{Name: "inode", Type: "unsigned long"},
+				Value:   interface{}(uint64(576807)),
+			},
+			{
+				ArgMeta: trace.ArgMeta{Name: "invoked_from_kernel", Type: "int"},
+				Value:   interface{}(0),
+			},
+			{
+				ArgMeta: trace.ArgMeta{Name: "ctime", Type: "unsigned long"},
+				Value:   interface{}(uint64(execBinaryCtime)),
+			},
+			{
+				ArgMeta: trace.ArgMeta{Name: "sha256", Type: "const char*"},
+				Value:   interface{}(execBinaryHash),
+			},
 		},
 	}
 	testCases := []struct {
@@ -81,25 +112,29 @@ func TestProcessTree_ProcessExec(t *testing.T) {
 		{
 			testName: "forked event executed",
 			initialTree: ProcessTree{
-				processes: types.EnvelopeMapWithRW[int, *processNode](map[int]*processNode{
-					execEvent.HostProcessID: {
-						InHostIDs: ProcessIDs{
-							Pid:  execEvent.HostProcessID,
-							Ppid: execEvent.HostParentProcessID,
+				processes: types.EnvelopeMapWithRW[int, *processNode](
+					map[int]*processNode{
+						execEvent.HostProcessID: {
+							InHostIDs: ProcessIDs{
+								Pid:  execEvent.HostProcessID,
+								Ppid: execEvent.HostParentProcessID,
+							},
+							InContainerIDs: ProcessIDs{
+								Pid:  execEvent.ProcessID,
+								Ppid: execEvent.ParentProcessID,
+							},
+							ContainerID: TestContainerID,
+							StartTime:   100000000,
+							ProcessName: "bash",
+							Status:      *roaring.BitmapOf(uint32(generalCreated), uint32(forked)),
+							Threads: types.EnvelopeMapWithRW[int, *threadNode](
+								map[int]*threadNode{
+									execEvent.HostProcessID: {},
+								},
+							),
 						},
-						InContainerIDs: ProcessIDs{
-							Pid:  execEvent.ProcessID,
-							Ppid: execEvent.ParentProcessID,
-						},
-						ContainerID: TestContainerID,
-						StartTime:   100000000,
-						ProcessName: "bash",
-						Status:      *roaring.BitmapOf(uint32(generalCreated), uint32(forked)),
-						Threads: types.EnvelopeMapWithRW[int, *threadInfo](map[int]*threadInfo{
-							execEvent.HostProcessID: {},
-						}),
 					},
-				}),
+				),
 			},
 			expectedProcess: &processNode{
 				InHostIDs: ProcessIDs{
@@ -118,36 +153,48 @@ func TestProcessTree_ProcessExec(t *testing.T) {
 				},
 				ContainerID: TestContainerID,
 				StartTime:   100000000,
-				Status:      *roaring.BitmapOf(uint32(generalCreated), uint32(forked), uint32(executed)),
+				Status: *roaring.BitmapOf(
+					uint32(generalCreated),
+					uint32(forked),
+					uint32(executed),
+				),
 				ProcessName: execEvent.ProcessName,
 			},
 		},
 		{
 			testName: "Double execve process",
 			initialTree: ProcessTree{
-				processes: types.EnvelopeMapWithRW[int, *processNode](map[int]*processNode{
-					execEvent.HostProcessID: {
-						InHostIDs: ProcessIDs{
-							Pid:  execEvent.HostProcessID,
-							Ppid: execEvent.HostParentProcessID,
+				processes: types.EnvelopeMapWithRW[int, *processNode](
+					map[int]*processNode{
+						execEvent.HostProcessID: {
+							InHostIDs: ProcessIDs{
+								Pid:  execEvent.HostProcessID,
+								Ppid: execEvent.HostParentProcessID,
+							},
+							InContainerIDs: ProcessIDs{
+								Pid:  execEvent.ProcessID,
+								Ppid: execEvent.ParentProcessID,
+							},
+							ContainerID: TestContainerID,
+							StartTime:   100000000,
+							ProcessName: "sleep",
+							Status: *roaring.BitmapOf(
+								uint32(generalCreated),
+								uint32(forked),
+								uint32(executed),
+							),
+							ExecutionBinary: BinaryInfo{
+								Path:  "/bin/sleep",
+								Ctime: 100,
+							},
+							Threads: types.EnvelopeMapWithRW[int, *threadNode](
+								map[int]*threadNode{
+									execEvent.HostProcessID: {},
+								},
+							),
 						},
-						InContainerIDs: ProcessIDs{
-							Pid:  execEvent.ProcessID,
-							Ppid: execEvent.ParentProcessID,
-						},
-						ContainerID: TestContainerID,
-						StartTime:   100000000,
-						ProcessName: "sleep",
-						Status:      *roaring.BitmapOf(uint32(generalCreated), uint32(forked), uint32(executed)),
-						ExecutionBinary: BinaryInfo{
-							Path:  "/bin/sleep",
-							Ctime: 100,
-						},
-						Threads: types.EnvelopeMapWithRW[int, *threadInfo](map[int]*threadInfo{
-							execEvent.HostProcessID: {},
-						}),
 					},
-				}),
+				),
 			},
 			expectedProcess: &processNode{
 				InHostIDs: ProcessIDs{
@@ -165,32 +212,40 @@ func TestProcessTree_ProcessExec(t *testing.T) {
 					Ctime: uint(execBinaryCtime),
 					Hash:  execBinaryHash,
 				},
-				StartTime:   100000000,
-				Status:      *roaring.BitmapOf(uint32(generalCreated), uint32(forked), uint32(executed)),
+				StartTime: 100000000,
+				Status: *roaring.BitmapOf(
+					uint32(generalCreated),
+					uint32(forked),
+					uint32(executed),
+				),
 				ProcessName: execEvent.ProcessName,
 			},
 		},
 		{
 			testName: "General event generate process",
 			initialTree: ProcessTree{
-				processes: types.EnvelopeMapWithRW[int, *processNode](map[int]*processNode{
-					execEvent.HostProcessID: {
-						InHostIDs: ProcessIDs{
-							Pid:  execEvent.HostProcessID,
-							Ppid: execEvent.HostParentProcessID,
+				processes: types.EnvelopeMapWithRW[int, *processNode](
+					map[int]*processNode{
+						execEvent.HostProcessID: {
+							InHostIDs: ProcessIDs{
+								Pid:  execEvent.HostProcessID,
+								Ppid: execEvent.HostParentProcessID,
+							},
+							InContainerIDs: ProcessIDs{
+								Pid:  execEvent.ProcessID,
+								Ppid: execEvent.ParentProcessID,
+							},
+							ContainerID: TestContainerID,
+							ProcessName: execEvent.ProcessName,
+							Status:      *roaring.BitmapOf(uint32(generalCreated)),
+							Threads: types.EnvelopeMapWithRW[int, *threadNode](
+								map[int]*threadNode{
+									execEvent.HostProcessID: {},
+								},
+							),
 						},
-						InContainerIDs: ProcessIDs{
-							Pid:  execEvent.ProcessID,
-							Ppid: execEvent.ParentProcessID,
-						},
-						ContainerID: TestContainerID,
-						ProcessName: execEvent.ProcessName,
-						Status:      *roaring.BitmapOf(uint32(generalCreated)),
-						Threads: types.EnvelopeMapWithRW[int, *threadInfo](map[int]*threadInfo{
-							execEvent.HostProcessID: {},
-						}),
 					},
-				}),
+				),
 			},
 			expectedProcess: &processNode{
 				InHostIDs: ProcessIDs{
@@ -214,22 +269,44 @@ func TestProcessTree_ProcessExec(t *testing.T) {
 		},
 	}
 	for _, testCase := range testCases {
-		t.Run(testCase.testName, func(t *testing.T) {
-			require.NoError(t, testCase.initialTree.processExecEvent(&execEvent))
-			execProcess, err := testCase.initialTree.getProcess(execEvent.HostThreadID)
-			require.NoError(t, err)
-			assert.ElementsMatch(t, testCase.expectedProcess.Cmd, execProcess.Cmd)
-			assert.Equal(t, testCase.expectedProcess.ProcessName, execProcess.ProcessName)
-			assert.Equal(t, testCase.expectedProcess.ContainerID, execProcess.ContainerID)
-			assert.Equal(t, testCase.expectedProcess.InHostIDs.Pid, execProcess.InHostIDs.Pid)
-			assert.Equal(t, testCase.expectedProcess.InHostIDs.Ppid, execProcess.InHostIDs.Ppid)
-			assert.Equal(t, testCase.expectedProcess.InContainerIDs.Pid, execProcess.InContainerIDs.Pid)
-			assert.Equal(t, testCase.expectedProcess.InContainerIDs.Ppid, execProcess.InContainerIDs.Ppid)
-			assert.Equal(t, testCase.expectedProcess.StartTime, execProcess.StartTime)
-			assert.Equal(t, testCase.expectedProcess.Status, execProcess.Status)
-			assert.Equal(t, testCase.expectedProcess.ExecutionBinary.Path, execProcess.ExecutionBinary.Path)
-			assert.Equal(t, testCase.expectedProcess.ExecutionBinary.Ctime, execProcess.ExecutionBinary.Ctime)
-			assert.Equal(t, testCase.expectedProcess.ExecutionBinary.Hash, execProcess.ExecutionBinary.Hash)
-		})
+		t.Run(
+			testCase.testName, func(t *testing.T) {
+				require.NoError(t, testCase.initialTree.processExecEvent(&execEvent))
+				execProcess, err := testCase.initialTree.getProcess(execEvent.HostThreadID)
+				require.NoError(t, err)
+				assert.ElementsMatch(t, testCase.expectedProcess.Cmd, execProcess.Cmd)
+				assert.Equal(t, testCase.expectedProcess.ProcessName, execProcess.ProcessName)
+				assert.Equal(t, testCase.expectedProcess.ContainerID, execProcess.ContainerID)
+				assert.Equal(t, testCase.expectedProcess.InHostIDs.Pid, execProcess.InHostIDs.Pid)
+				assert.Equal(t, testCase.expectedProcess.InHostIDs.Ppid, execProcess.InHostIDs.Ppid)
+				assert.Equal(
+					t,
+					testCase.expectedProcess.InContainerIDs.Pid,
+					execProcess.InContainerIDs.Pid,
+				)
+				assert.Equal(
+					t,
+					testCase.expectedProcess.InContainerIDs.Ppid,
+					execProcess.InContainerIDs.Ppid,
+				)
+				assert.Equal(t, testCase.expectedProcess.StartTime, execProcess.StartTime)
+				assert.Equal(t, testCase.expectedProcess.Status, execProcess.Status)
+				assert.Equal(
+					t,
+					testCase.expectedProcess.ExecutionBinary.Path,
+					execProcess.ExecutionBinary.Path,
+				)
+				assert.Equal(
+					t,
+					testCase.expectedProcess.ExecutionBinary.Ctime,
+					execProcess.ExecutionBinary.Ctime,
+				)
+				assert.Equal(
+					t,
+					testCase.expectedProcess.ExecutionBinary.Hash,
+					execProcess.ExecutionBinary.Hash,
+				)
+			},
+		)
 	}
 }

@@ -1,19 +1,20 @@
 package proctree
 
 import (
+	"github.com/aquasecurity/tracee/pkg/events"
 	"github.com/aquasecurity/tracee/types/trace"
 )
 
 // ProcessEvent update the process tree according to arriving event
 func (tree *ProcessTree) ProcessEvent(traceeEvent *trace.Event) error {
-	switch traceeEvent.EventName {
-	case "sched_process_fork":
+	switch events.ID(traceeEvent.EventID) {
+	case events.SchedProcessFork:
 		return tree.processForkEvent(traceeEvent)
-	case "sched_process_exec":
+	case events.SchedProcessExec:
 		return tree.processExecEvent(traceeEvent)
-	case "sched_process_exit":
+	case events.SchedProcessExit:
 		return tree.processExitEvent(traceeEvent)
-	case "exit", "init_namespaces":
+	case events.Exit, events.InitNamespaces, events.HiddenKernelModule:
 		return nil
 	default:
 		return tree.processDefaultEvent(traceeEvent)
@@ -27,12 +28,11 @@ func (tree *ProcessTree) processDefaultEvent(event *trace.Event) error {
 	if err != nil {
 		process = tree.addGeneralEventProcess(event)
 	}
-	process.Mutex.Lock()
-	defer process.Mutex.Unlock()
-	if process.Status.Contains(uint32(hollowParent)) {
-		fillHollowParentProcessGeneralEvent(process, event)
+	if process.Status.Contains(uint32(hollowParent)) &&
+		!process.Status.Contains(uint32(generalCreated)) {
+		process.fillGeneralInfoForHollowByEvent(event)
 	}
-	process.addThread(event.HostThreadID)
+	process.addGeneralEventThread(event)
 	if process.ParentProcess == nil {
 		tree.generateParentProcess(process)
 	}

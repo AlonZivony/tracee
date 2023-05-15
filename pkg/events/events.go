@@ -2,6 +2,7 @@ package events
 
 import (
 	"kernel.org/pub/linux/libs/security/libcap/cap"
+	"math"
 
 	"github.com/aquasecurity/tracee/pkg/capabilities"
 	"github.com/aquasecurity/tracee/pkg/ebpf/probes"
@@ -276,7 +277,7 @@ const (
 	MaxCommonID
 )
 
-// Events originated from user-space
+// Events originated in user-space but were derived from kernel events
 const (
 	NetPacketIPv4 ID = iota + 2000
 	NetPacketIPv6
@@ -291,7 +292,6 @@ const (
 	NetPacketHTTPRequest
 	NetPacketHTTPResponse
 	MaxUserNetID
-	InitNamespaces
 	ContainerCreate
 	ContainerRemove
 	ExistingContainer
@@ -299,6 +299,12 @@ const (
 	HookedSeqOps
 	SymbolsLoaded
 	SymbolsCollision
+	MaxDerived
+)
+
+// Events created in user-space
+const (
+	InitNamespaces ID = iota + 3000
 	HiddenKernelModule
 	MaxUserSpace
 )
@@ -319,6 +325,8 @@ const (
 	StartSignatureID ID = 6000
 	MaxSignatureID   ID = 6999
 )
+
+const AllEventsWildcard ID = math.MaxInt32
 
 var Definitions = eventDefinitions{
 	events: map[ID]Event{
@@ -958,7 +966,11 @@ var Definitions = eventDefinitions{
 			Syscall: true,
 			Dependencies: dependencies{
 				TailCalls: []TailCall{
-					{MapName: "sys_enter_tails", MapIndexes: []uint32{uint32(Execve)}, ProgName: "syscall__execve"},
+					{
+						MapName:    "sys_enter_tails",
+						MapIndexes: []uint32{uint32(Execve)},
+						ProgName:   "syscall__execve",
+					},
 				},
 			},
 			Sets: []string{"syscalls", "proc", "proc_life"},
@@ -3713,7 +3725,11 @@ var Definitions = eventDefinitions{
 			Syscall: true,
 			Dependencies: dependencies{
 				TailCalls: []TailCall{
-					{MapName: "sys_enter_tails", MapIndexes: []uint32{uint32(Execveat)}, ProgName: "syscall__execveat"},
+					{
+						MapName:    "sys_enter_tails",
+						MapIndexes: []uint32{uint32(Execveat)},
+						ProgName:   "syscall__execveat",
+					},
 				},
 			},
 			Sets: []string{"syscalls", "proc", "proc_life"},
@@ -5047,7 +5063,11 @@ var Definitions = eventDefinitions{
 			},
 			Dependencies: dependencies{
 				TailCalls: []TailCall{
-					{MapName: "prog_array_tp", MapIndexes: []uint32{tailSchedProcessExecEventSubmit}, ProgName: "sched_process_exec_event_submit_tail"},
+					{
+						MapName:    "prog_array_tp",
+						MapIndexes: []uint32{tailSchedProcessExecEventSubmit},
+						ProgName:   "sched_process_exec_event_submit_tail",
+					},
 				},
 				Capabilities: capDependency{
 					capabilities.Base: []cap.Value{
@@ -5170,7 +5190,11 @@ var Definitions = eventDefinitions{
 			},
 			Dependencies: dependencies{
 				TailCalls: []TailCall{
-					{MapName: "sys_enter_init_tail", MapIndexes: []uint32{uint32(Mmap), uint32(Mprotect), uint32(PkeyMprotect)}, ProgName: "sys_enter_init"},
+					{
+						MapName:    "sys_enter_init_tail",
+						MapIndexes: []uint32{uint32(Mmap), uint32(Mprotect), uint32(PkeyMprotect)},
+						ProgName:   "sys_enter_init",
+					},
 				},
 			},
 			Sets: []string{},
@@ -5296,10 +5320,12 @@ var Definitions = eventDefinitions{
 			},
 			Dependencies: dependencies{
 				TailCalls: []TailCall{
-					{MapName: "sys_enter_init_tail", MapIndexes: []uint32{
-						uint32(Open), uint32(Openat), uint32(Openat2), uint32(OpenByHandleAt),
-						uint32(Execve), uint32(Execveat),
-					}, ProgName: "sys_enter_init"},
+					{
+						MapName: "sys_enter_init_tail", MapIndexes: []uint32{
+							uint32(Open), uint32(Openat), uint32(Openat2), uint32(OpenByHandleAt),
+							uint32(Execve), uint32(Execveat),
+						}, ProgName: "sys_enter_init",
+					},
 				},
 			},
 			Sets: []string{"lsm_hooks", "fs", "fs_file_ops"},
@@ -5349,7 +5375,11 @@ var Definitions = eventDefinitions{
 			},
 			Dependencies: dependencies{
 				TailCalls: []TailCall{
-					{MapName: "sys_enter_init_tail", MapIndexes: []uint32{uint32(Listen)}, ProgName: "sys_enter_init"},
+					{
+						MapName:    "sys_enter_init_tail",
+						MapIndexes: []uint32{uint32(Listen)},
+						ProgName:   "sys_enter_init",
+					},
 				},
 			},
 			Sets: []string{"lsm_hooks", "net", "net_sock"},
@@ -5368,7 +5398,11 @@ var Definitions = eventDefinitions{
 			},
 			Dependencies: dependencies{
 				TailCalls: []TailCall{
-					{MapName: "sys_enter_init_tail", MapIndexes: []uint32{uint32(Connect)}, ProgName: "sys_enter_init"},
+					{
+						MapName:    "sys_enter_init_tail",
+						MapIndexes: []uint32{uint32(Connect)},
+						ProgName:   "sys_enter_init",
+					},
 				},
 			},
 			Sets: []string{"default", "lsm_hooks", "net", "net_sock"},
@@ -5386,7 +5420,11 @@ var Definitions = eventDefinitions{
 			},
 			Dependencies: dependencies{
 				TailCalls: []TailCall{
-					{MapName: "sys_enter_init_tail", MapIndexes: []uint32{uint32(Accept), uint32(Accept4)}, ProgName: "sys_enter_init"},
+					{
+						MapName:    "sys_enter_init_tail",
+						MapIndexes: []uint32{uint32(Accept), uint32(Accept4)},
+						ProgName:   "sys_enter_init",
+					},
 				},
 			},
 			Sets: []string{"default", "lsm_hooks", "net", "net_sock"},
@@ -5404,7 +5442,11 @@ var Definitions = eventDefinitions{
 			},
 			Dependencies: dependencies{
 				TailCalls: []TailCall{
-					{MapName: "sys_enter_init_tail", MapIndexes: []uint32{uint32(Bind)}, ProgName: "sys_enter_init"},
+					{
+						MapName:    "sys_enter_init_tail",
+						MapIndexes: []uint32{uint32(Bind)},
+						ProgName:   "sys_enter_init",
+					},
 				},
 			},
 			Sets: []string{"default", "lsm_hooks", "net", "net_sock"},
@@ -5423,7 +5465,11 @@ var Definitions = eventDefinitions{
 			},
 			Dependencies: dependencies{
 				TailCalls: []TailCall{
-					{MapName: "sys_enter_init_tail", MapIndexes: []uint32{uint32(Setsockopt)}, ProgName: "sys_enter_init"},
+					{
+						MapName:    "sys_enter_init_tail",
+						MapIndexes: []uint32{uint32(Setsockopt)},
+						ProgName:   "sys_enter_init",
+					},
 				},
 			},
 			Sets: []string{"lsm_hooks", "net", "net_sock"},
@@ -5572,7 +5618,11 @@ var Definitions = eventDefinitions{
 			},
 			Dependencies: dependencies{
 				TailCalls: []TailCall{
-					{MapName: "sys_enter_init_tail", MapIndexes: []uint32{uint32(Mprotect), uint32(PkeyMprotect)}, ProgName: "sys_enter_init"},
+					{
+						MapName:    "sys_enter_init_tail",
+						MapIndexes: []uint32{uint32(Mprotect), uint32(PkeyMprotect)},
+						ProgName:   "sys_enter_init",
+					},
 				},
 			},
 			Sets: []string{"lsm_hooks", "proc", "proc_mem", "fs", "fs_file_ops"},
@@ -5615,9 +5665,21 @@ var Definitions = eventDefinitions{
 			Name:    "socket_dup",
 			Dependencies: dependencies{
 				TailCalls: []TailCall{
-					{MapName: "sys_enter_init_tail", MapIndexes: []uint32{uint32(Dup), uint32(Dup2), uint32(Dup3)}, ProgName: "sys_enter_init"},
-					{MapName: "sys_exit_init_tail", MapIndexes: []uint32{uint32(Dup), uint32(Dup2), uint32(Dup3)}, ProgName: "sys_exit_init"},
-					{MapName: "sys_exit_tails", MapIndexes: []uint32{uint32(Dup), uint32(Dup2), uint32(Dup3)}, ProgName: "sys_dup_exit_tail"},
+					{
+						MapName:    "sys_enter_init_tail",
+						MapIndexes: []uint32{uint32(Dup), uint32(Dup2), uint32(Dup3)},
+						ProgName:   "sys_enter_init",
+					},
+					{
+						MapName:    "sys_exit_init_tail",
+						MapIndexes: []uint32{uint32(Dup), uint32(Dup2), uint32(Dup3)},
+						ProgName:   "sys_exit_init",
+					},
+					{
+						MapName:    "sys_exit_tails",
+						MapIndexes: []uint32{uint32(Dup), uint32(Dup2), uint32(Dup3)},
+						ProgName:   "sys_dup_exit_tail",
+					},
 				},
 			},
 			Sets: []string{},
@@ -5826,9 +5888,21 @@ var Definitions = eventDefinitions{
 					{Symbol: "mod_tree", Required: true},
 				},
 				TailCalls: []TailCall{
-					{MapName: "prog_array", MapIndexes: []uint32{tailHiddenKernelModuleProc}, ProgName: "lkm_seeker_proc_tail"},
-					{MapName: "prog_array", MapIndexes: []uint32{tailHiddenKernelModuleKset}, ProgName: "lkm_seeker_kset_tail"},
-					{MapName: "prog_array", MapIndexes: []uint32{tailHiddenKernelModuleModTree}, ProgName: "lkm_seeker_mod_tree_tail"},
+					{
+						MapName:    "prog_array",
+						MapIndexes: []uint32{tailHiddenKernelModuleProc},
+						ProgName:   "lkm_seeker_proc_tail",
+					},
+					{
+						MapName:    "prog_array",
+						MapIndexes: []uint32{tailHiddenKernelModuleKset},
+						ProgName:   "lkm_seeker_kset_tail",
+					},
+					{
+						MapName:    "prog_array",
+						MapIndexes: []uint32{tailHiddenKernelModuleModTree},
+						ProgName:   "lkm_seeker_mod_tree_tail",
+					},
 				},
 			},
 			Sets: []string{},
@@ -5970,10 +6044,26 @@ var Definitions = eventDefinitions{
 			},
 			Dependencies: dependencies{
 				TailCalls: []TailCall{
-					{MapName: "prog_array", MapIndexes: []uint32{tailVfsWrite}, ProgName: "trace_ret_vfs_write_tail"},
-					{MapName: "prog_array", MapIndexes: []uint32{tailVfsWritev}, ProgName: "trace_ret_vfs_writev_tail"},
-					{MapName: "prog_array", MapIndexes: []uint32{tailKernelWrite}, ProgName: "trace_ret_kernel_write_tail"},
-					{MapName: "prog_array", MapIndexes: []uint32{tailSendBin}, ProgName: "send_bin"},
+					{
+						MapName:    "prog_array",
+						MapIndexes: []uint32{tailVfsWrite},
+						ProgName:   "trace_ret_vfs_write_tail",
+					},
+					{
+						MapName:    "prog_array",
+						MapIndexes: []uint32{tailVfsWritev},
+						ProgName:   "trace_ret_vfs_writev_tail",
+					},
+					{
+						MapName:    "prog_array",
+						MapIndexes: []uint32{tailKernelWrite},
+						ProgName:   "trace_ret_kernel_write_tail",
+					},
+					{
+						MapName:    "prog_array",
+						MapIndexes: []uint32{tailSendBin},
+						ProgName:   "send_bin",
+					},
 				},
 			},
 		},
@@ -6006,9 +6096,21 @@ var Definitions = eventDefinitions{
 			Dependencies: dependencies{
 				Events: []eventDependency{{EventID: SchedProcessExec}},
 				TailCalls: []TailCall{
-					{MapName: "sys_enter_tails", MapIndexes: []uint32{uint32(InitModule)}, ProgName: "syscall__init_module"},
-					{MapName: "prog_array_tp", MapIndexes: []uint32{tailSendBinTP}, ProgName: "send_bin_tp"},
-					{MapName: "prog_array", MapIndexes: []uint32{tailSendBin}, ProgName: "send_bin"},
+					{
+						MapName:    "sys_enter_tails",
+						MapIndexes: []uint32{uint32(InitModule)},
+						ProgName:   "syscall__init_module",
+					},
+					{
+						MapName:    "prog_array_tp",
+						MapIndexes: []uint32{tailSendBinTP},
+						ProgName:   "send_bin_tp",
+					},
+					{
+						MapName:    "prog_array",
+						MapIndexes: []uint32{tailSendBin},
+						ProgName:   "send_bin",
+					},
 				},
 			},
 		},
@@ -6018,7 +6120,11 @@ var Definitions = eventDefinitions{
 			Internal: true,
 			Dependencies: dependencies{
 				TailCalls: []TailCall{
-					{MapName: "prog_array", MapIndexes: []uint32{tailSendBin}, ProgName: "send_bin"},
+					{
+						MapName:    "prog_array",
+						MapIndexes: []uint32{tailSendBin},
+						ProgName:   "send_bin",
+					},
 				},
 			},
 		},
@@ -6031,7 +6137,11 @@ var Definitions = eventDefinitions{
 			},
 			Dependencies: dependencies{
 				TailCalls: []TailCall{
-					{MapName: "prog_array", MapIndexes: []uint32{tailSendBin}, ProgName: "send_bin"},
+					{
+						MapName:    "prog_array",
+						MapIndexes: []uint32{tailSendBin},
+						ProgName:   "send_bin",
+					},
 				},
 			},
 		},
@@ -6065,14 +6175,19 @@ var Definitions = eventDefinitions{
 			Dependencies: dependencies{
 				Events: []eventDependency{{EventID: SecuritySocketAccept}},
 				TailCalls: []TailCall{
-					{MapName: "sys_exit_tails", MapIndexes: []uint32{uint32(Accept), uint32(Accept4)}, ProgName: "syscall__accept4"},
+					{
+						MapName:    "sys_exit_tails",
+						MapIndexes: []uint32{uint32(Accept), uint32(Accept4)},
+						ProgName:   "syscall__accept4",
+					},
 				},
 			},
 			Sets: []string{},
 			Params: []trace.ArgMeta{
 				{Type: "int", Name: "sockfd"},
 				{Type: "struct sockaddr*", Name: "local_addr"},
-				{Type: "struct sockaddr*", Name: "remote_addr"}},
+				{Type: "struct sockaddr*", Name: "remote_addr"},
+			},
 		},
 		LoadElfPhdrs: {
 			ID32Bit: sys32undefined,
@@ -6389,9 +6504,21 @@ var Definitions = eventDefinitions{
 			Sets:    []string{"proc"},
 			Dependencies: dependencies{
 				TailCalls: []TailCall{
-					{MapName: "sys_enter_init_tail", MapIndexes: []uint32{uint32(Execve), uint32(Execveat)}, ProgName: "sys_enter_init"},
-					{MapName: "prog_array", MapIndexes: []uint32{TailExecBinprm1}, ProgName: "trace_ret_exec_binprm1"},
-					{MapName: "prog_array", MapIndexes: []uint32{TailExecBinprm2}, ProgName: "trace_ret_exec_binprm2"},
+					{
+						MapName:    "sys_enter_init_tail",
+						MapIndexes: []uint32{uint32(Execve), uint32(Execveat)},
+						ProgName:   "sys_enter_init",
+					},
+					{
+						MapName:    "prog_array",
+						MapIndexes: []uint32{TailExecBinprm1},
+						ProgName:   "trace_ret_exec_binprm1",
+					},
+					{
+						MapName:    "prog_array",
+						MapIndexes: []uint32{TailExecBinprm2},
+						ProgName:   "trace_ret_exec_binprm2",
+					},
 				},
 			},
 			Params: []trace.ArgMeta{
@@ -6722,7 +6849,8 @@ var Definitions = eventDefinitions{
 				{Type: "trace.ProtoHTTPResponse", Name: "http_response"},
 			},
 		},
-		NetPacketCapture: { // all packets have full payload (sent in a dedicated perfbuffer)
+		NetPacketCapture: {
+			// all packets have full payload (sent in a dedicated perfbuffer)
 			ID32Bit:  sys32undefined,
 			Name:     "net_packet_capture",
 			Internal: true,
@@ -6735,7 +6863,8 @@ var Definitions = eventDefinitions{
 				{Type: "bytes", Name: "payload"},
 			},
 		},
-		CaptureNetPacket: { // network packet capture pseudo event
+		CaptureNetPacket: {
+			// network packet capture pseudo event
 			ID32Bit:  sys32undefined,
 			Name:     "capture_net_packet",
 			Internal: true,

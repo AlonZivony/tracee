@@ -87,6 +87,7 @@ type processInformationStatus uint32
 const (
 	forked processInformationStatus = iota
 	executed
+	exited
 	generalCreated // Information that resides in every event
 	hollowParent   // Information of parent process that resides in every event
 )
@@ -111,15 +112,20 @@ type processNode struct {
 	ExitTime        timestamp
 	ParentProcess   *processNode
 	ChildProcesses  []*processNode
-	Threads         types.RWMap[int, *threadInfo]
+	Threads         types.RWMap[int, *threadNode]
 	IsAlive         bool
 	Status          roaring.Bitmap // Values type are processInformationStatus
 	Mutex           sync.RWMutex
 }
 
-type threadInfo struct {
-	forkTime timestamp
-	exitTime timestamp
+type threadNode struct {
+	Tid        int
+	forkTime   timestamp
+	exitTime   timestamp
+	Namespaces NamespacesIDs
+	Process    *processNode
+	Status     roaring.Bitmap
+	Mutex      sync.RWMutex
 }
 
 type containerProcessTree struct {

@@ -204,8 +204,8 @@ func buildLinearTree(tps []testProcess, lastProcessIDs ProcessIDs) (ProcessTree,
 				Pid:  lastProcessIDs.Pid - (exitProcessIndex - i),
 				Ppid: lastProcessIDs.Ppid - (exitProcessIndex - i),
 			},
-			Threads: types.EnvelopeMapWithRW[int, *threadInfo](
-				map[int]*threadInfo{
+			Threads: types.EnvelopeMapWithRW[int, *threadNode](
+				map[int]*threadNode{
 					lastProcessIDs.Pid - (exitProcessIndex - i): {},
 				},
 			),
@@ -235,7 +235,7 @@ func buildWideBranchTree(
 			Pid:  ppid,
 			Ppid: 0,
 		},
-		Threads:     types.InitRWMap[int, *threadInfo](),
+		Threads:     types.InitRWMap[int, *threadNode](),
 		ContainerID: exitEvent.Container.ID,
 		IsAlive:     true,
 	}
@@ -253,8 +253,8 @@ func buildWideBranchTree(
 				Pid:  exitEvent.HostProcessID - exitIndex + i,
 				Ppid: ppid,
 			},
-			Threads: types.EnvelopeMapWithRW[int, *threadInfo](
-				map[int]*threadInfo{
+			Threads: types.EnvelopeMapWithRW[int, *threadNode](
+				map[int]*threadNode{
 					exitEvent.HostThreadID - exitIndex + i: {},
 				},
 			),

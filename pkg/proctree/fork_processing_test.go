@@ -52,8 +52,8 @@ func TestProcessTree_ProcessFork(t *testing.T) {
 							},
 							ExecTime:    shCtime,
 							ContainerID: TestContainerID,
-							Threads: types.EnvelopeMapWithRW[int, *threadInfo](
-								map[int]*threadInfo{
+							Threads: types.EnvelopeMapWithRW[int, *threadNode](
+								map[int]*threadNode{
 									pid: {forkTime: shCtime},
 								},
 							),
@@ -81,8 +81,8 @@ func TestProcessTree_ProcessFork(t *testing.T) {
 								Ppid: 10,
 							},
 							StartTime: shCtime - 100000,
-							Threads: types.EnvelopeMapWithRW[int, *threadInfo](
-								map[int]*threadInfo{
+							Threads: types.EnvelopeMapWithRW[int, *threadNode](
+								map[int]*threadNode{
 									pid: {forkTime: shCtime},
 								},
 							),
@@ -118,8 +118,8 @@ func TestProcessTree_ProcessFork(t *testing.T) {
 							ExecTime:    shCtime - 100000,
 							StartTime:   shCtime - 100000,
 							ContainerID: "",
-							Threads: types.EnvelopeMapWithRW[int, *threadInfo](
-								map[int]*threadInfo{
+							Threads: types.EnvelopeMapWithRW[int, *threadNode](
+								map[int]*threadNode{
 									pid: {forkTime: shCtime},
 								},
 							),
@@ -172,8 +172,8 @@ func TestProcessTree_ProcessFork(t *testing.T) {
 								Ppid: cppid,
 							},
 							ContainerID: TestContainerID,
-							Threads: types.EnvelopeMapWithRW[int, *threadInfo](
-								map[int]*threadInfo{
+							Threads: types.EnvelopeMapWithRW[int, *threadNode](
+								map[int]*threadNode{
 									pid: {forkTime: shCtime},
 								},
 							),
@@ -250,8 +250,8 @@ func TestProcessTree_ProcessFork(t *testing.T) {
 							},
 							ExecTime:    shCtime,
 							ContainerID: TestContainerID,
-							Threads: types.EnvelopeMapWithRW[int, *threadInfo](
-								map[int]*threadInfo{
+							Threads: types.EnvelopeMapWithRW[int, *threadNode](
+								map[int]*threadNode{
 									pid: {forkTime: shCtime},
 								},
 							),
@@ -281,8 +281,8 @@ func TestProcessTree_ProcessFork(t *testing.T) {
 							},
 							StartTime:   shCtime,
 							ProcessName: "sh",
-							Threads: types.EnvelopeMapWithRW[int, *threadInfo](
-								map[int]*threadInfo{
+							Threads: types.EnvelopeMapWithRW[int, *threadNode](
+								map[int]*threadNode{
 									pid: {forkTime: shCtime},
 								},
 							),
@@ -319,8 +319,8 @@ func TestProcessTree_ProcessFork(t *testing.T) {
 							ExecTime:    shCtime,
 							StartTime:   shCtime,
 							ContainerID: TestContainerID,
-							Threads: types.EnvelopeMapWithRW[int, *threadInfo](
-								map[int]*threadInfo{
+							Threads: types.EnvelopeMapWithRW[int, *threadNode](
+								map[int]*threadNode{
 									pid: {forkTime: shCtime},
 								},
 							),
@@ -351,7 +351,7 @@ func TestProcessTree_ProcessFork(t *testing.T) {
 								Pid: cpid,
 							},
 							Status:  *roaring.BitmapOf(uint32(hollowParent)),
-							Threads: types.InitRWMap[int, *threadInfo](),
+							Threads: types.InitRWMap[int, *threadNode](),
 						},
 					),
 					expected: expectedValues{
@@ -376,8 +376,8 @@ func TestProcessTree_ProcessFork(t *testing.T) {
 								Ppid: cppid,
 							},
 							ContainerID: TestContainerID,
-							Threads: types.EnvelopeMapWithRW[int, *threadInfo](
-								map[int]*threadInfo{
+							Threads: types.EnvelopeMapWithRW[int, *threadNode](
+								map[int]*threadNode{
 									pid: {forkTime: shCtime},
 								},
 							),

@@ -98,11 +98,13 @@ func (p *processNode) export(time int) ProcessInfo {
 		child.Mutex.RUnlock()
 	}
 	for _, tid := range p.Threads.Keys() {
-		threadExitTime, ok := p.Threads.Get(tid)
-		if ok && (threadExitTime.exitTime == 0 ||
-			time < int(threadExitTime.exitTime)) && int(threadExitTime.forkTime) < time {
+		tnode, ok := p.Threads.Get(tid)
+		tnode.Mutex.RLock()
+		if ok && (tnode.exitTime == 0 ||
+			time < int(tnode.exitTime)) && int(tnode.forkTime) < time {
 			threadIDs = append(threadIDs, tid)
 		}
+		tnode.Mutex.RUnlock()
 	}
 	return ProcessInfo{
 		NsIDs:           p.InContainerIDs,
