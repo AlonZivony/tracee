@@ -641,7 +641,7 @@ func (t *Tracee) enrichProcess(ctx context.Context, in <-chan *trace.Event) (<-c
 
 					// Currently we only add parent information, as each new field we add increase the load significantly.
 					// We don't necessary have information on the parent process, so we do best effort.
-					parentProcess, err := t.processTree.GetProcessInfo(currentProcess.HostPpid, currentProcess.StartTime)
+					parentProcess, err := t.processTree.GetProcessInfo(currentProcess.Ppid, currentProcess.StartTime)
 					if err != nil {
 						var name string
 						// TODO: We should get the name of the thread which forked the process
@@ -653,7 +653,7 @@ func (t *Tracee) enrichProcess(ctx context.Context, in <-chan *trace.Event) (<-c
 						}
 						if err == nil {
 							parent := trace.Process{
-								ID:   parentProcess.HostPid,
+								ID:   parentProcess.Id,
 								Name: name,
 								Binary: trace.BinaryInfo{
 									ExecTime: parentProcess.ExecTime,
