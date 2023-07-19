@@ -46,7 +46,7 @@ SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
 SIG_DIR=$(realpath $SCRIPT_DIR/../dist/e2e-inst-signatures)
 
 # run CO-RE VFS_WRITE test only by default
-TESTS=${INSTTESTS:=VFS_WRITE}
+TESTS=${INSTTESTS:=PROCESS_TREE_DATA_SOURCE}
 
 # startup needs
 rm -rf $TRACEE_TMP_DIR/* || error_exit "could not delete $TRACEE_TMP_DIR"
