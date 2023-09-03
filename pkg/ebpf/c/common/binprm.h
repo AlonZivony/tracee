@@ -12,6 +12,7 @@ statfunc const char *get_binprm_interp(struct linux_binprm *);
 statfunc struct file *get_file_ptr_from_bprm(struct linux_binprm *);
 statfunc int get_argc_from_bprm(struct linux_binprm *);
 statfunc int get_envc_from_bprm(struct linux_binprm *);
+statfunc struct mm_struct *get_mm_from_bprm(struct linux_binprm *);
 
 // FUNCTIONS
 
@@ -38,6 +39,10 @@ statfunc int get_argc_from_bprm(struct linux_binprm *bprm)
 statfunc int get_envc_from_bprm(struct linux_binprm *bprm)
 {
     return BPF_CORE_READ(bprm, envc);
+}
+
+statfunc struct mm_struct *get_mm_from_bprm(struct linux_binprm *bprm) {
+    return BPF_CORE_READ(bprm, mm);
 }
 
 #endif

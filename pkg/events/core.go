@@ -9196,6 +9196,7 @@ var CoreEvents = map[ID]Definition{
 			{Type: "const char*", Name: "pathname"},
 			{Type: "dev_t", Name: "dev"},
 			{Type: "unsigned long", Name: "inode"},
+			{Type: "const char**", Name: "argv"},
 		},
 	},
 	SecurityFileOpen: {

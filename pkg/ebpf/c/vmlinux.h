@@ -608,6 +608,8 @@ struct linux_binprm {
     int envc;
     const char *filename;
     const char *interp;
+    struct mm_struct *mm;
+    unsigned long p;
 };
 
 typedef __s64 time64_t;
