@@ -1947,24 +1947,13 @@ int BPF_KPROBE(trace_security_bprm_check)
     void *file_path = get_path_str(__builtin_preserve_access_index(&file->f_path));
 
     struct mm_struct *mm = get_mm_from_bprm(bprm);
-    unsigned long arg_start, arg_end;
-    arg_start = BPF_CORE_READ(bprm, p);
+    unsigned long arg_start = BPF_CORE_READ(bprm, p);
     int argc = get_argc_from_bprm(bprm);
-
-    arg_end = arg_start;
-#pragma unroll
-    for(int i = 0; i < 10; i++){
-		if(i == argc) {
-			break;
-		}
-        u64 strlen = __builtin_strlen((char *)arg_end);
-		arg_end += strlen;
-    }
 
     save_str_to_buf(&p.event->args_buf, file_path, 0);
     save_to_submit_buf(&p.event->args_buf, &s_dev, sizeof(dev_t), 1);
     save_to_submit_buf(&p.event->args_buf, &inode_nr, sizeof(unsigned long), 2);
-    save_args_str_arr_to_buf(&p.event->args_buf, (void *) arg_start, (void *) arg_end, argc, 3);
+    save_str_slice_to_buf(&p.event->args_buf, (void *) arg_start, (size_t)argc, 3);
 
     return events_perf_submit(&p, SECURITY_BPRM_CHECK, 0);
 }

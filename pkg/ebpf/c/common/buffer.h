@@ -302,6 +302,73 @@ statfunc int save_args_str_arr_to_buf(
     return 0;
 }
 
+statfunc int save_str_slice_to_buf(args_buffer_t *buf, char *ptr, size_t len, u8 index)
+{
+    // Data saved to submit buf: [index][string count][str1 size][str1][str2 size][str2]...
+    u8 elem_num = 0;
+
+    if (buf->offset > ARGS_BUF_SIZE - 1)
+        return 0;
+
+    // Save argument index
+    buf->args[buf->offset] = index;
+
+    // Save space for number of elements (1 byte)
+    u32 orig_off = buf->offset + 1;
+    buf->offset += 2;
+
+    char *current_element = ptr;
+
+#pragma unroll
+    for (int i = 0; i < MAX_STR_ARR_ELEM; i++) {
+        if (buf->offset > ARGS_BUF_SIZE - MAX_STRING_SIZE - sizeof(int))
+            // not enough space - return
+            goto out;
+
+        // Read into buffer
+        int sz = bpf_probe_read_str(&(buf->args[buf->offset + sizeof(int)]), MAX_STRING_SIZE, current_element);
+        if (sz > 0) {
+            if (buf->offset > ARGS_BUF_SIZE - sizeof(int))
+                // Satisfy validator
+                goto out;
+            bpf_probe_read(&(buf->args[buf->offset]), sizeof(int), &sz);
+            buf->offset += sz + sizeof(int);
+            current_element += sz;
+            elem_num++;
+            // Stop if copied all elements in the slice
+            if (elem_num == len)
+                goto out;
+            else
+                continue;
+        } else {
+            goto out;
+        }
+    }
+    // handle truncated argument list
+    char ellipsis[] = "...";
+    if (buf->offset > ARGS_BUF_SIZE - MAX_STRING_SIZE - sizeof(int))
+        // not enough space - return
+        goto out;
+
+    // Read into buffer
+    int sz = bpf_probe_read_str(&(buf->args[buf->offset + sizeof(int)]), MAX_STRING_SIZE, ellipsis);
+    if (sz > 0) {
+        if (buf->offset > ARGS_BUF_SIZE - sizeof(int))
+            // Satisfy validator
+            goto out;
+        bpf_probe_read(&(buf->args[buf->offset]), sizeof(int), &sz);
+        buf->offset += sz + sizeof(int);
+        elem_num++;
+    }
+out:
+    // save number of elements in the array
+    if (orig_off > ARGS_BUF_SIZE - 1)
+        return 0;
+    buf->args[orig_off] = elem_num;
+    buf->argnum++;
+    return 1;
+}
+
 statfunc int save_sockaddr_to_buf(args_buffer_t *buf, struct socket *sock, u8 index)
 {
     struct sock *sk = get_socket_sock(sock);
