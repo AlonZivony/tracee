@@ -117,12 +117,13 @@ func (pt *ProcessTree) String() string {
 		tid := fmt.Sprintf("%v", processFeed.Tid)
 		pid := fmt.Sprintf("%v", processFeed.Pid)
 		ppid := fmt.Sprintf("%v", processFeed.PPid)
-		date := process.GetInfo().GetStartTime().Format("2006-01-02 15:04:05")
+		hash := fmt.Sprintf("%v", process.GetHash())
+		date := fmt.Sprintf("%v", process.GetInfo().GetStartTime().UnixNano())
 
 		// add the row to the table
 		unsortedRows = append(unsortedRows,
 			[]string{
-				ppid, tid, pid, date, execName,
+				ppid, tid, pid, hash, date, execName,
 				getListOfChildrenPids(process),
 				getListOfThreadsTids(process),
 			},
