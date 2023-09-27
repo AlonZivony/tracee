@@ -500,12 +500,15 @@ ifeq ($(STATIC), 1)
     GO_TAGS_RULES := netgo
 endif
 
+CUSTOM_CGO_CFLAGS = "-I$(abspath $(OUTPUT_DIR)/libbpf)"
+CUSTOM_CGO_LDFLAGS = "$(shell $(call pkg_config, $(LIB_ELF))) $(shell $(call pkg_config, $(LIB_ZLIB))) $(abspath $(OUTPUT_DIR)/libbpf/libbpf.a)"
+
 GO_ENV_RULES =
 GO_ENV_RULES += GOOS=linux
 GO_ENV_RULES += CC=$(CMD_CLANG)
 GO_ENV_RULES += GOARCH=$(GO_ARCH)
-GO_ENV_RULES += CGO_CFLAGS=
-GO_ENV_RULES += CGO_LDFLAGS=
+GO_ENV_RULES += CGO_CFLAGS=$(CUSTOM_CGO_CFLAGS)
+GO_ENV_RULES += CGO_LDFLAGS=$(CUSTOM_CGO_LDFLAGS)
 
 TRACEE_RULES_SRC_DIRS = ./cmd/tracee-rules/ ./pkg/signatures/
 TRACEE_RULES_SRC=$(shell find $(TRACEE_RULES_SRC_DIRS) -type f -name '*.go')
