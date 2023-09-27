@@ -101,9 +101,9 @@ func (pt *ProcessTree) String() string {
 		if !ok {
 			continue
 		}
-		if !process.info.IsAlive() {
-			continue // only running processes
-		}
+		// if !process.info.IsAlive() {
+		// 	continue // only running processes
+		// }
 
 		// create a row for the table
 		processFeed := process.GetInfo().GetFeed()

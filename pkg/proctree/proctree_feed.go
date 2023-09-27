@@ -1,6 +1,7 @@
 package proctree
 
 import (
+	"fmt"
 	"github.com/aquasecurity/tracee/pkg/errfmt"
 	"github.com/aquasecurity/tracee/pkg/logger"
 	"github.com/aquasecurity/tracee/pkg/utils"
@@ -181,6 +182,9 @@ func (pt *ProcessTree) FeedFromExec(feed ExecFeed) error {
 
 	process.SetParentHash(feed.ParentHash) // faster than checking if already set
 
+	if feed.CmdPath == "/usr/bin/ls" {
+		fmt.Printf("Task with tid %d and pid %d hash %d is ls\n", process.GetInfo().tid, process.GetInfo().GetPid(), feed.TaskHash)
+	}
 	process.GetInfo().SetNameAt(
 		feed.CmdPath,
 		utils.NsSinceBootTimeToTime(feed.TimeStamp),

@@ -69,6 +69,8 @@ func (sig *e2eProcessTreeDataSource) OnEvent(event protocol.Event) error {
 			return err
 		}
 
+		fmt.Printf("Got ls event of thread %d process %d", eventObj.HostThreadID, eventObj.HostProcessID)
+
 		err = sig.checkThread(&eventObj)
 		if err != nil {
 			return err
