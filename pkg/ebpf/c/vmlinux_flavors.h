@@ -97,6 +97,43 @@ struct module___older_v64 {
 
 ///////////////////
 
+struct io_ring_ctx___older_v59 {
+    struct task_struct *sqo_thread;
+};
+
+struct io_connect {
+};
+
+struct io_kiocb___older_v6 {
+    union {
+        struct file *file;
+        struct io_rw rw;
+        struct io_connect connect;
+    };
+    u32 result;
+    u32 error;
+};
+
+struct io_uring_sqe {
+    __u64 addr;
+    __u32 len;
+};
+
+struct sqe_submit {
+    const struct io_uring_sqe *sqe;
+    u8 opcode;
+};
+
+struct io_kiocb___older_v55 {
+    union {
+        struct file *file;
+        struct kiocb rw;
+    };
+    struct sqe_submit submit;
+    unsigned int flags;
+    u64 user_data;
+};
+
 #pragma clang attribute pop
 
 #endif

@@ -132,4 +132,13 @@ const (
 	SignalSchedProcessFork
 	SignalSchedProcessExec
 	SignalSchedProcessExit
+	IoUringCreate
+	IoSqOffloadStart
+	IoSqOffloadStartRet
+	IoUringSubmitSqe
+	IoUringSubmitReq
+	IoSubmitSqe
+	IoUringQueueAsyncWork
+	IoWrite
+	IoWriteRet
 )

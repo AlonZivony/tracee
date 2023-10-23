@@ -104,6 +104,9 @@ const (
 	HiddenKernelModuleSeeker
 	ModuleLoad
 	ModuleFree
+	IoUringCreate
+	IoUringSubmitReq
+	IoWrite
 	MaxCommonID
 )
 
@@ -10514,12 +10517,15 @@ var CoreEvents = map[ID]Definition{
 				{handle: probes.KernelWrite, required: false},
 				{handle: probes.KernelWriteRet, required: false},
 				{handle: probes.SecurityInodeUnlink, required: false}, // Used for ELF filter
+				{handle: probes.IoWrite, required: false},
+				{handle: probes.IoWriteRet, required: false},
 			},
 			tailCalls: []TailCall{
 				{"prog_array", "trace_ret_vfs_write_tail", []uint32{TailVfsWrite}},
 				{"prog_array", "trace_ret_vfs_writev_tail", []uint32{TailVfsWritev}},
 				{"prog_array", "trace_ret_kernel_write_tail", []uint32{TailKernelWrite}},
 				{"prog_array", "send_bin", []uint32{TailSendBin}},
+				{"prog_array", "trace_ret_io_write_tail", []uint32{TailIoWrite}},
 			},
 			kSymbols: []KSymbol{
 				{symbol: "pipe_write", required: true},
@@ -11114,6 +11120,74 @@ var CoreEvents = map[ID]Definition{
 			{Type: "const char*", Name: "callback_owner"},
 			{Type: "const char*", Name: "flags"},
 			{Type: "unsigned long", Name: "count"},
+		},
+	},
+	IoUringCreate: {
+		id:      IoUringCreate,
+		id32Bit: Sys32Undefined,
+		name:    "io_uring_create",
+		version: NewVersion(1, 0, 0),
+		sets:    []string{},
+		dependencies: Dependencies{
+			probes: []Probe{
+				{handle: probes.IoSqOffloadStart, required: false},    // exists in kernels v5.1 - v5.4
+				{handle: probes.IoSqOffloadStartRet, required: false}, // exists in kernels v5.1 - v5.4
+				{handle: probes.IoUringCreate, required: false},       // exists in kernels v5.5 onwards
+			},
+		},
+		params: []trace.ArgMeta{
+			{Type: "void*", Name: "ctx"},
+			{Type: "u32", Name: "sq_entries"},
+			{Type: "u32", Name: "cq_entries"},
+			{Type: "u32", Name: "flags"},
+			{Type: "bool", Name: "polling"},
+		},
+	},
+	IoUringSubmitReq: {
+		id:      IoUringSubmitReq,
+		id32Bit: Sys32Undefined,
+		name:    "io_uring_submit_req",
+		version: NewVersion(1, 0, 0),
+		sets:    []string{},
+		dependencies: Dependencies{
+			probes: []Probe{
+				{handle: probes.IoSubmitSqe, required: false},      // exists in kernels v5.1 - v5.4
+				{handle: probes.IoUringSubmitSqe, required: false}, // exists in kernels v5.5 - v6.3
+				{handle: probes.IoUringSubmitReq, required: false}, // exists in kernel v6.4 onwards
+			},
+		},
+		params: []trace.ArgMeta{
+			{Type: "const char*", Name: "path"},
+			{Type: "dev_t", Name: "device"},
+			{Type: "unsigned long", Name: "inode"},
+			{Type: "u8", Name: "opcode"},
+			{Type: "u64", Name: "user_data"},
+			{Type: "u32", Name: "flags"},
+			{Type: "bool", Name: "sq_thread"},
+			{Type: "u32", Name: "sq_thread_id"},
+		},
+	},
+	IoWrite: {
+		id:      IoWrite,
+		id32Bit: Sys32Undefined,
+		name:    "io_write",
+		version: NewVersion(1, 0, 0),
+		sets:    []string{},
+		dependencies: Dependencies{
+			probes: []Probe{
+				{handle: probes.IoWrite, required: true},
+				{handle: probes.IoWriteRet, required: true},
+				{handle: probes.IoUringQueueAsyncWork, required: true},
+			},
+		},
+		params: []trace.ArgMeta{
+			{Type: "const char*", Name: "path"},
+			{Type: "long", Name: "pos"},
+			{Type: "void*", Name: "buf"},
+			{Type: "u32", Name: "len"},
+			{Type: "u32", Name: "worker_host_tid"},
+			{Type: "dev_t", Name: "device"},
+			{Type: "unsigned long", Name: "inode"},
 		},
 	},
 	//
