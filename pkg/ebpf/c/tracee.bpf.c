@@ -3110,6 +3110,46 @@ int BPF_KPROBE(trace_ret_kernel_write_tail)
     return capture_file_write(ctx, __KERNEL_WRITE, true);
 }
 
+statfunc int common_submit_io_write(program_data_t *p,
+                                    struct io_kiocb *req,
+                                    struct kiocb *kiocb,
+                                    u32 host_tid,
+                                    void *buf,
+                                    u32 len,
+                                    int ret)
+{
+    // get write position
+    // (reusing io_kiocb struct flavors to get the correct data for the current kernel version)
+    loff_t ki_pos = kiocb->ki_pos;
+    u32 bytes_done = 0;
+    if (bpf_core_field_exists(req->cqe)) { // Version >= v5.19
+        struct io_cqe cqe = BPF_CORE_READ(req, cqe);
+        bytes_done = cqe.res;
+    } else { // Version >= v5.10
+        struct io_kiocb___older_v6 *req_55 = (void *) req;
+        if (bpf_core_field_exists(req_55->result)) { // Version >= v5.3
+            bytes_done = BPF_CORE_READ(req_55, result);
+        } else { // Version >= v5.1
+            bytes_done = BPF_CORE_READ(req_55, error);
+        }
+    }
+    loff_t pos = ki_pos - bytes_done;
+
+    // get file info
+    struct file *file = kiocb->ki_filp;
+    file_info_t file_info = get_file_info(file);
+
+    save_str_to_buf(&p->event->args_buf, file_info.pathname_p, 0);
+    save_to_submit_buf(&p->event->args_buf, &pos, sizeof(loff_t), 1);
+    save_to_submit_buf(&p->event->args_buf, &buf, sizeof(void *), 2);
+    save_to_submit_buf(&p->event->args_buf, &len, sizeof(u32), 3);
+    save_to_submit_buf(&p->event->args_buf, &host_tid, sizeof(u32), 4);
+    save_to_submit_buf(&p->event->args_buf, &file_info.id.device, sizeof(dev_t), 5);
+    save_to_submit_buf(&p->event->args_buf, &file_info.id.inode, sizeof(unsigned long), 6);
+
+    return events_perf_submit(p, IO_WRITE, bytes_done);
+}
+
 SEC("kprobe/io_write")
 TRACE_ENT_FUNC(io_write, IO_WRITE);
 
@@ -3193,36 +3233,39 @@ int BPF_KPROBE(trace_ret_io_write)
         }
     }
 
-    // get write position
-    // (reusing io_kiocb struct flavors to get the correct data for the current kernel version)
-    loff_t ki_pos = kiocb.ki_pos;
-    u32 bytes_done = 0;
-    if (bpf_core_field_exists(req->cqe)) { // Version >= v5.19
-        struct io_cqe cqe = BPF_CORE_READ(req, cqe);
-        bytes_done = cqe.res;
-    } else { // Version >= v5.10
-        struct io_kiocb___older_v6 *req_55 = (void *) req;
-        if (bpf_core_field_exists(req_55->result)) { // Version >= v5.3
-            bytes_done = BPF_CORE_READ(req_55, result);
-        } else { // Version >= v5.1
-            bytes_done = BPF_CORE_READ(req_55, error);
-        }
-    }
-    loff_t pos = ki_pos - bytes_done;
+    // // get write position
+    // // (reusing io_kiocb struct flavors to get the correct data for the current kernel version)
+    // loff_t ki_pos = kiocb.ki_pos;
+    // u32 bytes_done = 0;
+    // if (bpf_core_field_exists(req->cqe)) { // Version >= v5.19
+    //     struct io_cqe cqe = BPF_CORE_READ(req, cqe);
+    //     bytes_done = cqe.res;
+    // } else { // Version >= v5.10
+    //     struct io_kiocb___older_v6 *req_55 = (void *) req;
+    //     if (bpf_core_field_exists(req_55->result)) { // Version >= v5.3
+    //         bytes_done = BPF_CORE_READ(req_55, result);
+    //     } else { // Version >= v5.1
+    //         bytes_done = BPF_CORE_READ(req_55, error);
+    //     }
+    // }
+    // loff_t pos = ki_pos - bytes_done;
 
-    // get file info
-    struct file *file = kiocb.ki_filp;
-    file_info_t file_info = get_file_info(file);
+    // // get file info
+    // struct file *file = kiocb.ki_filp;
+    // file_info_t file_info = get_file_info(file);
 
-    save_str_to_buf(&p.event->args_buf, file_info.pathname_p, 0);
-    save_to_submit_buf(&p.event->args_buf, &pos, sizeof(loff_t), 1);
-    save_to_submit_buf(&p.event->args_buf, &buf, sizeof(void *), 2);
-    save_to_submit_buf(&p.event->args_buf, &len, sizeof(u32), 3);
-    save_to_submit_buf(&p.event->args_buf, &host_tid, sizeof(u32), 4);
-    save_to_submit_buf(&p.event->args_buf, &file_info.id.device, sizeof(dev_t), 5);
-    save_to_submit_buf(&p.event->args_buf, &file_info.id.inode, sizeof(unsigned long), 6);
+    // save_str_to_buf(&p.event->args_buf, file_info.pathname_p, 0);
+    // save_to_submit_buf(&p.event->args_buf, &pos, sizeof(loff_t), 1);
+    // save_to_submit_buf(&p.event->args_buf, &buf, sizeof(void *), 2);
+    // save_to_submit_buf(&p.event->args_buf, &len, sizeof(u32), 3);
+    // save_to_submit_buf(&p.event->args_buf, &host_tid, sizeof(u32), 4);
+    // save_to_submit_buf(&p.event->args_buf, &file_info.id.device, sizeof(dev_t), 5);
+    // save_to_submit_buf(&p.event->args_buf, &file_info.id.inode, sizeof(unsigned long), 6);
 
-    events_perf_submit(&p, IO_WRITE, ret);
+    // events_perf_submit(&p, IO_WRITE, ret);
+
+    // submit event
+    common_submit_io_write(&p, req, &kiocb, host_tid, buf, len, ret);
 
     // TODO: don't del if passing to send_bin
     del_args(IO_WRITE);
@@ -5248,14 +5291,15 @@ int BPF_KPROBE(trace__io_submit_sqe)
         return 0;
     }
 
-    if (!should_submit(IO_URING_SUBMIT_REQ, p.event))
+    if (!should_submit(IO_URING_SUBMIT_REQ, p.event) || !should_submit(IO_WRITE, p.event))
         return 0;
 
     struct io_ring_ctx *uring_ctx = (struct io_ring_ctx *) PT_REGS_PARM1(ctx);
     struct io_kiocb___older_v55 *req = (struct io_kiocb___older_v55 *) PT_REGS_PARM2(ctx);
 
     if (!bpf_core_field_exists(req->submit)) { // Version >= v5.5
-        // this case handled by the tracepoints io_uring_submit_sqe / io_uring_submit_req
+        // this case handled by the tracepoints io_uring_submit_sqe / io_uring_submit_req and kprobe
+        // io_write
         return 0;
     }
 
@@ -5281,9 +5325,22 @@ int BPF_KPROBE(trace__io_submit_sqe)
         }
     }
 
-    // submit event
-    return common_submit_io_uring_submit_req(
+    // get write info from req
+    struct kiocb kiocb = BPF_CORE_READ(req, rw);
+    const struct io_uring_sqe *sqe = submit.sqe;
+    u64 addr = BPF_CORE_READ(sqe, addr);
+    void *buf = (void *) addr;
+    u32 len = BPF_CORE_READ(sqe, len);
+
+    // submit io_uring_submit_req
+    common_submit_io_uring_submit_req(
         &p, (struct io_kiocb *) req, opcode, &user_data, &flags, sq_thread);
+
+    // submit io_write
+    reset_event_args(&p); // Do not corrupt the buffer for the io_write event
+    common_submit_io_write(&p, (struct io_kiocb *) req, &kiocb, host_tid, buf, len, 0);
+
+    return 0;
 }
 
 SEC("raw_tracepoint/io_uring_queue_async_work")

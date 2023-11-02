@@ -11175,9 +11175,10 @@ var CoreEvents = map[ID]Definition{
 		sets:    []string{},
 		dependencies: Dependencies{
 			probes: []Probe{
-				{handle: probes.IoWrite, required: true},
-				{handle: probes.IoWriteRet, required: true},
-				{handle: probes.IoUringQueueAsyncWork, required: true},
+				{handle: probes.IoWrite, required: false},               // this probe fails on older kernels.
+				{handle: probes.IoWriteRet, required: false},            // instead, using the
+				{handle: probes.IoSubmitSqe, required: false},           // __io_submit_sqe to populate the event.
+				{handle: probes.IoUringQueueAsyncWork, required: false}, // this tracepoint is from v5.5 onwards.
 			},
 		},
 		params: []trace.ArgMeta{
