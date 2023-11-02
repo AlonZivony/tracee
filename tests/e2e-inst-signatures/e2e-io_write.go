@@ -3,7 +3,6 @@ package main
 import (
 	"fmt"
 
-	"github.com/aquasecurity/tracee/signatures/helpers"
 	"github.com/aquasecurity/tracee/types/detect"
 	"github.com/aquasecurity/tracee/types/protocol"
 	"github.com/aquasecurity/tracee/types/trace"
@@ -43,25 +42,6 @@ func (sig *e2eIoWrite) OnEvent(event protocol.Event) error {
 
 	switch eventObj.EventName {
 	case "io_write":
-		path, err := helpers.GetTraceeStringArgumentByName(eventObj, "path")
-		if err != nil {
-			return err
-		}
-
-		lenArg, err := helpers.GetTraceeArgumentByName(eventObj, "len", helpers.GetArgOps{DefaultArgs: false})
-		if err != nil {
-			return err
-		}
-		writeLen, ok := lenArg.Value.(uint32)
-		if !ok {
-			return nil
-		}
-
-		// check expected values from test for detection
-
-		if eventObj.ProcessName != "io_uring_writev" || writeLen != 2 || path != "/tmp/io_uring_writev.txt" {
-			return nil
-		}
 
 		m, _ := sig.GetMetadata()
 

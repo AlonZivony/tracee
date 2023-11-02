@@ -3,7 +3,6 @@ package main
 import (
 	"fmt"
 
-	"github.com/aquasecurity/tracee/signatures/helpers"
 	"github.com/aquasecurity/tracee/types/detect"
 	"github.com/aquasecurity/tracee/types/protocol"
 	"github.com/aquasecurity/tracee/types/trace"
@@ -43,21 +42,6 @@ func (sig *e2eIoUringSumitReq) OnEvent(event protocol.Event) error {
 
 	switch eventObj.EventName {
 	case "io_uring_submit_req":
-		path, err := helpers.GetTraceeStringArgumentByName(eventObj, "path")
-		if err != nil {
-			return err
-		}
-
-		opcode, err := helpers.GetTraceeStringArgumentByName(eventObj, "opcode")
-		if err != nil {
-			return err
-		}
-
-		// check expected values from test for detection
-
-		if eventObj.ProcessName != "io_uring_writev" || opcode != "IORING_OP_WRITEV" || path != "/tmp/io_uring_writev.txt" {
-			return nil
-		}
 
 		m, _ := sig.GetMetadata()
 
