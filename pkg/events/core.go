@@ -105,7 +105,7 @@ const (
 	ModuleLoad
 	ModuleFree
 	IoUringCreate
-	IoUringSubmitReq
+	IoIssueSqe
 	IoWrite
 	MaxCommonID
 )
@@ -11143,17 +11143,21 @@ var CoreEvents = map[ID]Definition{
 			{Type: "bool", Name: "polling"},
 		},
 	},
-	IoUringSubmitReq: {
-		id:      IoUringSubmitReq,
+	IoIssueSqe: {
+		id:      IoIssueSqe,
 		id32Bit: Sys32Undefined,
-		name:    "io_uring_submit_req",
+		name:    "io_issue_sqe",
 		version: NewVersion(1, 0, 0),
 		sets:    []string{},
 		dependencies: Dependencies{
 			probes: []Probe{
-				{handle: probes.IoSubmitSqe, required: false},      // exists in kernels v5.1 - v5.4
-				{handle: probes.IoUringSubmitSqe, required: false}, // exists in kernels v5.5 - v6.3
-				{handle: probes.IoUringSubmitReq, required: false}, // exists in kernel v6.4 onwards
+				// io_uring_create probes, to get correct context for io_uring events
+				{handle: probes.IoSqOffloadStart, required: false},    // exists in kernels v5.1 - v5.4
+				{handle: probes.IoSqOffloadStartRet, required: false}, // exists in kernels v5.1 - v5.4
+				{handle: probes.IoUringCreate, required: false},       // exists in kernels v5.5 onwards
+				// probes to tell if an io_uring task is being issued
+				{handle: probes.IoSubmitSqe, required: false}, // exists in kernels v5.1 - v5.4
+				{handle: probes.IoIssueSqe, required: false},  // exists in kernels v5.5 onwards
 			},
 		},
 		params: []trace.ArgMeta{
@@ -11175,9 +11179,15 @@ var CoreEvents = map[ID]Definition{
 		sets:    []string{},
 		dependencies: Dependencies{
 			probes: []Probe{
-				{handle: probes.IoWrite, required: false},               // this probe fails on older kernels.
-				{handle: probes.IoWriteRet, required: false},            // instead, using the
-				{handle: probes.IoSubmitSqe, required: false},           // __io_submit_sqe to populate the event.
+				// io_uring_create probes, to get correct context for io_uring events
+				{handle: probes.IoSqOffloadStart, required: false},    // exists in kernels v5.1 - v5.4
+				{handle: probes.IoSqOffloadStartRet, required: false}, // exists in kernels v5.1 - v5.4
+				{handle: probes.IoUringCreate, required: false},       // exists in kernels v5.5 onwards
+				// probes to tell io_write
+				{handle: probes.IoWrite, required: false},     // this probe fails on older kernels.
+				{handle: probes.IoWriteRet, required: false},  // instead, using the
+				{handle: probes.IoSubmitSqe, required: false}, // __io_submit_sqe to populate the event.
+				// get correct context if async
 				{handle: probes.IoUringQueueAsyncWork, required: false}, // this tracepoint is from v5.5 onwards.
 			},
 		},

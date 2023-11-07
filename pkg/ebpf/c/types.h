@@ -123,7 +123,7 @@ enum event_id_e
     MODULE_LOAD,
     MODULE_FREE,
     IO_URING_CREATE,
-    IO_URING_SUBMIT_REQ,
+    IO_ISSUE_SQE,
     IO_WRITE,
     MAX_EVENT_ID,
 };

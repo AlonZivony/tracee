@@ -283,7 +283,7 @@ func ParseArgs(event *trace.Event) error {
 				parseOrEmptyString(flagsArg, flagsParsed, nil)
 			}
 		}
-	case IoUringSubmitReq:
+	case IoIssueSqe:
 		if opcodeArg := GetArg(event, "opcode"); opcodeArg != nil {
 			if opcode, isUint8 := opcodeArg.Value.(uint8); isUint8 {
 				opcodeParsed, err := helpers.ParseIoUringOp(uint64(opcode))

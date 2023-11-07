@@ -135,9 +135,8 @@ const (
 	IoUringCreate
 	IoSqOffloadStart
 	IoSqOffloadStartRet
-	IoUringSubmitSqe
-	IoUringSubmitReq
 	IoSubmitSqe
+	IoIssueSqe
 	IoUringQueueAsyncWork
 	IoWrite
 	IoWriteRet

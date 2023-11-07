@@ -3190,8 +3190,8 @@ int BPF_KPROBE(trace_ret_io_write)
 
     struct io_kiocb *req = (struct io_kiocb *) saved_args.args[0];
 
-    // get real task info from uring_worker_ctx_map
     u32 host_tid = p.task_info->context.host_tid;
+    // get real task info from uring_worker_ctx_map
     event_context_t *real_ctx = bpf_map_lookup_elem(&uring_worker_ctx_map, &req);
     if (real_ctx != NULL) {
         p.event->context = *real_ctx;
@@ -3232,37 +3232,6 @@ int BPF_KPROBE(trace_ret_io_write)
             len = BPF_CORE_READ(sqe, len);
         }
     }
-
-    // // get write position
-    // // (reusing io_kiocb struct flavors to get the correct data for the current kernel version)
-    // loff_t ki_pos = kiocb.ki_pos;
-    // u32 bytes_done = 0;
-    // if (bpf_core_field_exists(req->cqe)) { // Version >= v5.19
-    //     struct io_cqe cqe = BPF_CORE_READ(req, cqe);
-    //     bytes_done = cqe.res;
-    // } else { // Version >= v5.10
-    //     struct io_kiocb___older_v6 *req_55 = (void *) req;
-    //     if (bpf_core_field_exists(req_55->result)) { // Version >= v5.3
-    //         bytes_done = BPF_CORE_READ(req_55, result);
-    //     } else { // Version >= v5.1
-    //         bytes_done = BPF_CORE_READ(req_55, error);
-    //     }
-    // }
-    // loff_t pos = ki_pos - bytes_done;
-
-    // // get file info
-    // struct file *file = kiocb.ki_filp;
-    // file_info_t file_info = get_file_info(file);
-
-    // save_str_to_buf(&p.event->args_buf, file_info.pathname_p, 0);
-    // save_to_submit_buf(&p.event->args_buf, &pos, sizeof(loff_t), 1);
-    // save_to_submit_buf(&p.event->args_buf, &buf, sizeof(void *), 2);
-    // save_to_submit_buf(&p.event->args_buf, &len, sizeof(u32), 3);
-    // save_to_submit_buf(&p.event->args_buf, &host_tid, sizeof(u32), 4);
-    // save_to_submit_buf(&p.event->args_buf, &file_info.id.device, sizeof(dev_t), 5);
-    // save_to_submit_buf(&p.event->args_buf, &file_info.id.inode, sizeof(unsigned long), 6);
-
-    // events_perf_submit(&p, IO_WRITE, ret);
 
     // submit event
     common_submit_io_write(&p, req, &kiocb, host_tid, buf, len, ret);
@@ -5047,12 +5016,15 @@ statfunc int common_io_uring_create(
 
     // update uring_poll_ctx_map with real task info
     bool polling = false;
+    u32 host_tid = p->task_info->context.host_tid;
     if (thread != NULL) {
-        u32 host_tid = BPF_CORE_READ(thread, pid);
-        bpf_map_update_elem(&uring_poll_ctx_map, &host_tid, &p->event->context, BPF_ANY);
-
         polling = true;
+        host_tid = BPF_CORE_READ(thread, pid);
     }
+    bpf_map_update_elem(&uring_poll_ctx_map, &host_tid, &p->event->context, BPF_ANY);
+
+    if (!should_submit(IO_URING_CREATE, p->event))
+        return 0;
 
     save_to_submit_buf(&p->event->args_buf, &io_uring_ctx, sizeof(struct io_ring_ctx *), 0);
     save_to_submit_buf(&p->event->args_buf, &sq_entries, sizeof(u32), 1);
@@ -5079,8 +5051,8 @@ int tracepoint__io_uring__io_uring_create(struct bpf_raw_tracepoint_args *ctx)
         return 0;
     }
 
-    if (!should_submit(IO_URING_CREATE, p.event))
-        return 0;
+    // this tracepoint was introduced in kernel v5.5.
+    // for older kernels, we use the io_sq_offload_start probe.
 
     struct io_ring_ctx *io_uring_ctx = (struct io_ring_ctx *) ctx->args[1];
     u32 sq_entries = ctx->args[2];
@@ -5116,9 +5088,6 @@ int BPF_KPROBE(trace_ret_io_sq_offload_start)
         return 0;
     }
 
-    if (!should_submit(IO_URING_CREATE, p.event))
-        return 0;
-
     if (!bpf_core_field_exists(((struct io_kiocb___older_v55 *) 0)->submit)) { // Version >= v5.5
         // this case handled by the tracepoint io_uring_create
         return 0;
@@ -5134,21 +5103,27 @@ int BPF_KPROBE(trace_ret_io_sq_offload_start)
     return common_io_uring_create(&p, io_uring_ctx, sq_entries, cq_entries, flags);
 }
 
-statfunc int common_submit_io_uring_submit_req(
-    program_data_t *p, struct io_kiocb *req, u8 opcode, u64 *user_data, u32 *flags, bool sq_thread)
+statfunc int
+common_submit_io_issue_sqe(program_data_t *p, struct io_kiocb *req, u8 opcode, u64 *user_data)
 {
-    // get file info
+    u32 flags = BPF_CORE_READ(req, flags);
+    struct io_ring_ctx *uring_ctx = BPF_CORE_READ(req, ctx);
+    u32 ctx_flags = BPF_CORE_READ(uring_ctx, flags);
+    bool sq_thread = ctx_flags & IORING_SETUP_SQPOLL;
     struct file *file = BPF_CORE_READ(req, file);
+    if (file == NULL) {
+        // file is null in first invocation of io_issue_sqe.
+        // in the second invocation, file is valid, but context is of async worker.
+        // we take care of the context below.
+        return 0;
+    }
     file_info_t file_info = get_file_info(file);
 
-    // get real task info
     u32 host_tid = p->task_info->context.host_tid;
-    if (sq_thread) {
-        // use uring_poll_ctx_map to get real info if existing
-        event_context_t *real_ctx = bpf_map_lookup_elem(&uring_poll_ctx_map, &host_tid);
-        if (real_ctx != NULL) {
-            p->event->context = *real_ctx;
-        }
+    // get real task info from uring_worker_ctx_map
+    event_context_t *real_ctx = bpf_map_lookup_elem(&uring_worker_ctx_map, &req);
+    if (real_ctx != NULL) {
+        p->event->context = *real_ctx;
     }
 
     // submit event
@@ -5157,15 +5132,15 @@ statfunc int common_submit_io_uring_submit_req(
     save_to_submit_buf(&p->event->args_buf, &file_info.id.inode, sizeof(unsigned long), 2);
     save_to_submit_buf(&p->event->args_buf, &opcode, sizeof(u8), 3);
     save_to_submit_buf(&p->event->args_buf, user_data, sizeof(u64), 4);
-    save_to_submit_buf(&p->event->args_buf, flags, sizeof(u32), 5);
+    save_to_submit_buf(&p->event->args_buf, &flags, sizeof(u32), 5);
     save_to_submit_buf(&p->event->args_buf, &sq_thread, sizeof(bool), 6);
     save_to_submit_buf(&p->event->args_buf, &host_tid, sizeof(u32), 7);
 
-    return events_perf_submit(p, IO_URING_SUBMIT_REQ, 0);
+    return events_perf_submit(p, IO_ISSUE_SQE, 0);
 }
 
-SEC("raw_tracepoint/io_uring_submit_sqe")
-int tracepoint__io_uring__io_uring_submit_sqe(struct bpf_raw_tracepoint_args *ctx)
+SEC("kprobe/io_issue_sqe")
+int BPF_KPROBE(trace_io_issue_sqe)
 {
     program_data_t p = {};
     if (!init_program_data(&p, ctx))
@@ -5180,99 +5155,51 @@ int tracepoint__io_uring__io_uring_submit_sqe(struct bpf_raw_tracepoint_args *ct
         return 0;
     }
 
-    if (!should_submit(IO_URING_SUBMIT_REQ, p.event))
+    if (!should_submit(IO_ISSUE_SQE, p.event))
         return 0;
 
-    if (!bpf_core_field_exists(((struct io_kiocb *) 0)->opcode)) { // Version < v5.5
-        // this tracepoint only exists from kernel >= v5.5.
+    struct io_kiocb___io_issue_sqe *req = (struct io_kiocb___io_issue_sqe *) PT_REGS_PARM1(ctx);
+
+    if (!bpf_core_field_exists(req->opcode)) { // Version < v5.5
+        // this kprobe only exists from kernel >= v5.5.
         // this check is to satisfy the verifier.
         // this case handled by the kprobe __io_submit_sqe.
         return 0;
     }
 
-    // get tracepoint arguments -
-    // this tracepoint milestones:
-    // - introduced in v5.5
-    // - changed in v5.10
-    // - changed in v6
-    // - removed in v6.4
-    struct io_kiocb *req;
-    u8 opcode;
+    // v5.1 - v5.4:     handled in trace__io_submit_sqe
+    // v5.5 - v5.16:    handled in trace_io_issue_sqe
+    // v5.17 - v6.6:    handled in trace_ret_io_assign_file
+    // args:
+    // - opcode
+    //      v5.1 - v5.4:    req->submit.opcode
+    //      v5.5 - v6.6:    req->opcode
+    // - user_data
+    //      v5.1 - v5.18:   req->user_data
+    //      v5.19 - v6.6:   req->cqe.user_data
+    // - flags
+    //      v5.1 - v6.6:    req->flags
+    // - file
+    //      v5.1 - v6.6:    req->file
+    // - sq_thread
+    //      v5.1 - v6.6:    req->ctx->flags & IORING_SETUP_SQPOLL
+
+    // v5.1 - v5.4:
+    //  bpf_core_field_exists(req->submit)
+    // v5.19 - v6.6:
+    //  bpf_core_field_exists(req->cqe)
+
+    u8 opcode = BPF_CORE_READ(req, opcode);
     u64 user_data;
-    u32 flags;
-    bool sq_thread;
-    struct io_ring_ctx *uring_ctx;
-    if (!bpf_core_field_exists(req->cmd)) {            // Version < v6
-        if (!bpf_core_field_exists(req->async_data)) { // version >= v5.5
-            uring_ctx = (struct io_ring_ctx *) ctx->args[0];
-            req = (struct io_kiocb *) container_of(uring_ctx, struct io_kiocb, ctx);
-            opcode = BPF_CORE_READ(req, opcode);
-            // reuse flavor io_kiocb___older_v55 to get user_data without having the need to create
-            // a specific new flavor.
-            struct io_kiocb___older_v55 *req_v59 = (struct io_kiocb___older_v55 *) req;
-            user_data = BPF_CORE_READ(req_v59, user_data);
-            flags = BPF_CORE_READ(req, flags);
-            u32 ctx_flags = BPF_CORE_READ(uring_ctx, flags);
-            sq_thread = ctx_flags & IORING_SETUP_SQPOLL;
-        } else { // version >= v5.10
-            req = (struct io_kiocb *) ctx->args[1];
-            opcode = ctx->args[2];
-            user_data = ctx->args[3];
-            flags = ctx->args[4];
-            sq_thread = ctx->args[6];
-        }
-    } else { // Version >= v6
-        req = (struct io_kiocb *) ctx->args[0];
-        opcode = BPF_CORE_READ(req, opcode);
+    if (bpf_core_field_exists(req->cqe)) {
         struct io_cqe cqe = BPF_CORE_READ(req, cqe);
         user_data = cqe.user_data;
-        flags = BPF_CORE_READ(req, flags);
-        uring_ctx = BPF_CORE_READ(req, ctx);
-        u32 ctx_flags = BPF_CORE_READ(uring_ctx, flags);
-        sq_thread = ctx_flags & IORING_SETUP_SQPOLL;
+    } else {
+        user_data = BPF_CORE_READ(req, user_data);
     }
 
     // submit event
-    return common_submit_io_uring_submit_req(&p, req, opcode, &user_data, &flags, sq_thread);
-}
-
-SEC("raw_tracepoint/io_uring_submit_req")
-int tracepoint__io_uring__io_uring_submit_req(struct bpf_raw_tracepoint_args *ctx)
-{
-    program_data_t p = {};
-    if (!init_program_data(&p, ctx))
-        return 0;
-
-    if (!should_trace((&p)))
-        return 0;
-
-    // io_uring was introduced in kernel v5.1.
-    // this check is to satisfy the verifier in older kernels.
-    if (!bpf_core_type_exists(struct io_kiocb)) {
-        return 0;
-    }
-
-    if (!should_submit(IO_URING_SUBMIT_REQ, p.event))
-        return 0;
-
-    if (!bpf_core_field_exists(((struct io_kiocb *) 0)->cmd)) { // Version < v6
-        // this tracepoint only exists from kernel >= v6.4.
-        // this check is to satisfy the verifier.
-        return 0;
-    }
-
-    // get tracepoint arguments
-    struct io_kiocb *req = (struct io_kiocb *) ctx->args[0];
-    u8 opcode = BPF_CORE_READ(req, opcode);
-    struct io_cqe cqe = BPF_CORE_READ(req, cqe);
-    u64 user_data = cqe.user_data;
-    u32 flags = BPF_CORE_READ(req, flags);
-    struct io_ring_ctx *uring_ctx = BPF_CORE_READ(req, ctx);
-    u32 ctx_flags = BPF_CORE_READ(uring_ctx, flags);
-    bool sq_thread = ctx_flags & IORING_SETUP_SQPOLL;
-
-    // submit event
-    return common_submit_io_uring_submit_req(&p, req, opcode, &user_data, &flags, sq_thread);
+    return common_submit_io_issue_sqe(&p, (struct io_kiocb *) req, opcode, &user_data);
 }
 
 SEC("kprobe/__io_submit_sqe")
@@ -5291,54 +5218,64 @@ int BPF_KPROBE(trace__io_submit_sqe)
         return 0;
     }
 
-    if (!should_submit(IO_URING_SUBMIT_REQ, p.event) || !should_submit(IO_WRITE, p.event))
+    if (!should_submit(IO_ISSUE_SQE, p.event) || !should_submit(IO_WRITE, p.event))
         return 0;
 
-    struct io_ring_ctx *uring_ctx = (struct io_ring_ctx *) PT_REGS_PARM1(ctx);
     struct io_kiocb___older_v55 *req = (struct io_kiocb___older_v55 *) PT_REGS_PARM2(ctx);
 
     if (!bpf_core_field_exists(req->submit)) { // Version >= v5.5
-        // this case handled by the tracepoints io_uring_submit_sqe / io_uring_submit_req and kprobe
-        // io_write
+        // this case handled by the tracepoints io_issue_sqe probe and io_write probe
         return 0;
     }
 
-    // extract args for the event
-    struct sqe_submit submit = BPF_CORE_READ(req, submit);
-    u8 opcode = submit.opcode;
-    u64 user_data = BPF_CORE_READ(req, user_data);
-    u32 flags = BPF_CORE_READ(req, flags);
-    u32 ctx_flags = BPF_CORE_READ(uring_ctx, flags);
-    bool sq_thread = ctx_flags & IORING_SETUP_SQPOLL;
-
-    // get file info
-    struct file *file = BPF_CORE_READ(req, file);
-    file_info_t file_info = get_file_info(file);
-
-    // get real task info
     u32 host_tid = p.task_info->context.host_tid;
-    if (sq_thread) {
-        // use uring_poll_ctx_map to get real info if existing
-        event_context_t *real_ctx = bpf_map_lookup_elem(&uring_poll_ctx_map, &host_tid);
-        if (real_ctx != NULL) {
-            p.event->context = *real_ctx;
-        }
+    struct sqe_submit submit = BPF_CORE_READ(req, submit);
+
+    if (should_submit(IO_ISSUE_SQE, p.event)) {
+        // v5.1 - v5.4:     handled in trace__io_submit_sqe
+        // v5.5 - v5.16:    handled in trace_io_issue_sqe
+        // v5.17 - v6.6:    handled in trace_ret_io_assign_file
+        // args:
+        // - opcode
+        //      v5.1 - v5.4:    req->submit.opcode
+        //      v5.5 - v6.6:    req->opcode
+        // - user_data
+        //      v5.1 - v5.18:   req->user_data
+        //      v5.19 - v6.6:   req->cqe.user_data
+        // - flags
+        //      v5.1 - v6.6:    req->flags
+        // - file
+        //      v5.1 - v6.6:    req->file
+        // - sq_thread
+        //      v5.1 - v6.6:    req->ctx->flags & IORING_SETUP_SQPOLL
+
+        // v5.1 - v5.4:
+        //  bpf_core_field_exists(req->submit)
+        // v5.19 - v6.6:
+        //  bpf_core_field_exists(req->cqe)
+
+        // extract args for the event
+        u8 opcode = submit.opcode;
+        u64 user_data = BPF_CORE_READ(req, user_data);
+
+        // submit io_issue_sqe
+        common_submit_io_issue_sqe(&p, (struct io_kiocb *) req, opcode, &user_data);
+
+        // Do not corrupt the buffer for the io_write event
+        reset_event_args(&p);
     }
 
-    // get write info from req
-    struct kiocb kiocb = BPF_CORE_READ(req, rw);
-    const struct io_uring_sqe *sqe = submit.sqe;
-    u64 addr = BPF_CORE_READ(sqe, addr);
-    void *buf = (void *) addr;
-    u32 len = BPF_CORE_READ(sqe, len);
+    if (should_submit(IO_WRITE, p.event)) {
+        // get write info from req
+        struct kiocb kiocb = BPF_CORE_READ(req, rw);
+        const struct io_uring_sqe *sqe = submit.sqe;
+        u64 addr = BPF_CORE_READ(sqe, addr);
+        void *buf = (void *) addr;
+        u32 len = BPF_CORE_READ(sqe, len);
 
-    // submit io_uring_submit_req
-    common_submit_io_uring_submit_req(
-        &p, (struct io_kiocb *) req, opcode, &user_data, &flags, sq_thread);
-
-    // submit io_write
-    reset_event_args(&p); // Do not corrupt the buffer for the io_write event
-    common_submit_io_write(&p, (struct io_kiocb *) req, &kiocb, host_tid, buf, len, 0);
+        // submit io_write
+        common_submit_io_write(&p, (struct io_kiocb *) req, &kiocb, host_tid, buf, len, 0);
+    }
 
     return 0;
 }
@@ -5359,7 +5296,7 @@ int tracepoint__io_uring__io_uring_queue_async_work(struct bpf_raw_tracepoint_ar
         return 0;
     }
 
-    if (!should_submit(IO_URING_SUBMIT_REQ, p.event))
+    if (!should_submit(IO_WRITE, p.event))
         return 0;
 
     // io_uring was introduced in kernel v5.1.
@@ -5368,7 +5305,19 @@ int tracepoint__io_uring__io_uring_queue_async_work(struct bpf_raw_tracepoint_ar
         return 0;
     }
 
-    struct io_kiocb *req = (struct io_kiocb *) ctx->args[2];
+    // kernel versions v5.5 - v5.17: arg 2
+    // kernel versions v5.18 - v5.19: arg 1
+    //  bpf_core_field_exists(req->msg)
+    // kernel versions v6.0 onwards: arg 0
+    //  bpf_core_field_exists(req->cmd)
+    struct io_kiocb___io_uring_queue_async_work *req;
+    if (bpf_core_field_exists(req->cmd)) { // Version >= v6.0
+        req = (struct io_kiocb___io_uring_queue_async_work *) ctx->args[0];
+    } else if (bpf_core_field_exists(req->msg)) { // Version >= v5.18
+        req = (struct io_kiocb___io_uring_queue_async_work *) ctx->args[1];
+    } else { // Version >= v5.5
+        req = (struct io_kiocb___io_uring_queue_async_work *) ctx->args[2];
+    }
 
     // get real task info from uring_poll_ctx_map
     u32 host_tid = p.task_info->context.host_tid;
