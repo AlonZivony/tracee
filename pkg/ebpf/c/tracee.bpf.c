@@ -3151,7 +3151,25 @@ statfunc int common_submit_io_write(program_data_t *p,
 }
 
 SEC("kprobe/io_write")
-TRACE_ENT_FUNC(io_write, IO_WRITE);
+int BPF_KPROBE(trace_io_write)
+{
+    // this is a version TRACE_ENT_FUNC without should_trace
+    // so that we can obtain the correct context later.
+
+    program_data_t p = {};
+    if (!init_program_data(&p, ctx))
+        return 0;
+
+    args_t args = {};
+    args.args[0] = PT_REGS_PARM1(ctx);
+    args.args[1] = PT_REGS_PARM2(ctx);
+    args.args[2] = PT_REGS_PARM3(ctx);
+    args.args[3] = PT_REGS_PARM4(ctx);
+    args.args[4] = PT_REGS_PARM5(ctx);
+    args.args[5] = PT_REGS_PARM6(ctx);
+
+    return save_args(&args, IO_WRITE);
+}
 
 SEC("kretprobe/io_write")
 int BPF_KPROBE(trace_ret_io_write)
@@ -3197,6 +3215,10 @@ int BPF_KPROBE(trace_ret_io_write)
         p.event->context = *real_ctx;
         bpf_map_delete_elem(&uring_worker_ctx_map, &req);
     }
+
+    // the should_trace is here now after we got the real context
+    if (!should_trace((&p)))
+        return 0;
 
     // get write info from req
     struct io_rw *rw = NULL;
@@ -5120,11 +5142,6 @@ common_submit_io_issue_sqe(program_data_t *p, struct io_kiocb *req, u8 opcode, u
     file_info_t file_info = get_file_info(file);
 
     u32 host_tid = p->task_info->context.host_tid;
-    // get real task info from uring_worker_ctx_map
-    event_context_t *real_ctx = bpf_map_lookup_elem(&uring_worker_ctx_map, &req);
-    if (real_ctx != NULL) {
-        p->event->context = *real_ctx;
-    }
 
     // submit event
     save_str_to_buf(&p->event->args_buf, file_info.pathname_p, 0);
@@ -5146,8 +5163,7 @@ int BPF_KPROBE(trace_io_issue_sqe)
     if (!init_program_data(&p, ctx))
         return 0;
 
-    if (!should_trace((&p)))
-        return 0;
+    // should_trace will be called after real context is obtained.
 
     // io_uring was introduced in kernel v5.1.
     // this check is to satisfy the verifier in older kernels.
@@ -5166,6 +5182,16 @@ int BPF_KPROBE(trace_io_issue_sqe)
         // this case handled by the kprobe __io_submit_sqe.
         return 0;
     }
+
+    // get real task info from uring_worker_ctx_map
+    event_context_t *real_ctx = bpf_map_lookup_elem(&uring_worker_ctx_map, &req);
+    if (real_ctx != NULL) {
+        p.event->context = *real_ctx;
+    }
+
+    // the should_trace is here now after we got the real context
+    if (!should_trace((&p)))
+        return 0;
 
     // v5.1 - v5.4:     handled in trace__io_submit_sqe
     // v5.5 - v5.16:    handled in trace_io_issue_sqe
@@ -5209,8 +5235,7 @@ int BPF_KPROBE(trace__io_submit_sqe)
     if (!init_program_data(&p, ctx))
         return 0;
 
-    if (!should_trace(&p))
-        return 0;
+    // should_trace will be called after real context is obtained.
 
     // io_uring was introduced in kernel v5.1.
     // this check is to satisfy the verifier in older kernels.
@@ -5218,15 +5243,22 @@ int BPF_KPROBE(trace__io_submit_sqe)
         return 0;
     }
 
-    if (!should_submit(IO_ISSUE_SQE, p.event) || !should_submit(IO_WRITE, p.event))
-        return 0;
-
     struct io_kiocb___older_v55 *req = (struct io_kiocb___older_v55 *) PT_REGS_PARM2(ctx);
 
     if (!bpf_core_field_exists(req->submit)) { // Version >= v5.5
         // this case handled by the tracepoints io_issue_sqe probe and io_write probe
         return 0;
     }
+
+    // get real task info from uring_worker_ctx_map
+    event_context_t *real_ctx = bpf_map_lookup_elem(&uring_worker_ctx_map, &req);
+    if (real_ctx != NULL) {
+        p.event->context = *real_ctx;
+    }
+
+    // the should_trace is here now after we got the real context
+    if (!should_trace((&p)))
+        return 0;
 
     u32 host_tid = p.task_info->context.host_tid;
     struct sqe_submit submit = BPF_CORE_READ(req, submit);
@@ -5287,8 +5319,7 @@ int tracepoint__io_uring__io_uring_queue_async_work(struct bpf_raw_tracepoint_ar
     if (!init_program_data(&p, ctx))
         return 0;
 
-    if (!should_trace((&p)))
-        return 0;
+    // should_trace will be called after real context is obtained.
 
     // io_uring was introduced in kernel v5.1.
     // this check is to satisfy the verifier in older kernels.
@@ -5325,6 +5356,10 @@ int tracepoint__io_uring__io_uring_queue_async_work(struct bpf_raw_tracepoint_ar
     if (real_ctx != NULL) {
         p.event->context = *real_ctx;
     }
+
+    // the should_trace is here now after we got the real context
+    if (!should_trace((&p)))
+        return 0;
 
     // update uring_worker_ctx_map with real task info
     bpf_map_update_elem(&uring_worker_ctx_map, &req, &p.event->context, BPF_ANY);
