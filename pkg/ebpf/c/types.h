@@ -402,6 +402,7 @@ enum bpf_log_id
     BPF_LOG_ID_GET_CURRENT_COMM,
     BPF_LOG_ID_TAIL_CALL,
     BPF_LOG_ID_MEM_READ,
+    BPF_LOG_ID_STRING_SIZE,
 };
 
 typedef struct bpf_log {

@@ -237,10 +237,13 @@ func parseFileCaptureSubOption(option string, captureConfig *config.FileCaptureC
 	value := optAndValue[1]
 	switch opt {
 	case "path":
-		if !strings.HasSuffix(option, "*") {
-			return fmt.Errorf("file path filter should end with *")
+		if !strings.HasSuffix(option, "*") && !strings.HasPrefix(option, "path=*") {
+			return fmt.Errorf("file path filter should start or end with *")
 		}
 		pathPrefix := strings.TrimSuffix(value, "*")
+		if strings.HasPrefix(pathPrefix, "*") {
+			suffixFilter := reverseString(strings.TrimPrefix(pathPrefix, "*"))
+		}
 		if len(pathPrefix) == 0 {
 			return fmt.Errorf("capture path filter cannot be empty")
 		}
@@ -264,6 +267,22 @@ func parseFileCaptureSubOption(option string, captureConfig *config.FileCaptureC
 	}
 
 	return nil
+}
+
+func reverseString(s string) string {
+	// Convert the string to a slice of runes
+	runes := []rune(s)
+
+	// Get the length of the rune slice
+	length := len(runes)
+
+	// Reverse the slice
+	for i, j := 0, length-1; i < j; i, j = i+1, j-1 {
+		runes[i], runes[j] = runes[j], runes[i]
+	}
+
+	// Convert the reversed slice back to a string
+	return string(runes)
 }
 
 var captureFileTypeStringToFlag = map[string]config.FileCaptureType{

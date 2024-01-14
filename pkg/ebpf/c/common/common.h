@@ -47,6 +47,26 @@ statfunc const char *get_device_name(struct device *dev)
             rc;                                                                                    \
         })
 
+    #define has_suffix(sf, st, n)                                                                  \
+        ({                                                                                         \
+            int rc = 0;                                                                            \
+            char *suf = sf;                                                                        \
+            size_t str_len;                                                                        \
+            bpf_probe_read(&str_len, sizeof(str_len), st);                                            \
+            char *str = st + str_len + sizeof(str_len);                                              \
+            _Pragma("unroll") for (int z = 0; z < n; suf++, str--, z++)                            \
+            {                                                                                      \
+                if (!*suf) {                                                                       \
+                    rc = 1;                                                                        \
+                    break;                                                                         \
+                } else if (z == str_len || *suf != *str) {                                         \
+                    rc = 0;                                                                        \
+                    break;                                                                         \
+                }                                                                                  \
+            }                                                                                      \
+            rc;                                                                                    \
+        })
+
 #else
 
 static __inline int has_prefix(char *prefix, char *str, int n)
@@ -59,6 +79,23 @@ static __inline int has_prefix(char *prefix, char *str, int n)
         if (*prefix != *str) {
             return 0;
         }
+    }
+
+    // prefix is too long
+    return 0;
+}
+
+static __inline int has_suffix(char *suffix, char *str, int n)
+{
+    int i;
+    char *suffix_iter = suffix + __builtin_strlen(suffix);
+    char *str_iter = str + __builtin_strlen(str);
+    #pragma unroll
+    for (i = 0; i < n; suffix_iter--, str_iter--, i++) {
+        if (*suffix_iter != *str)
+            return 0;
+        if (suffix_iter == suffix)
+            return 1;
     }
 
     // prefix is too long

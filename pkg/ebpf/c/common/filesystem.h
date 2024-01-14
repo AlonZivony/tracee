@@ -164,6 +164,7 @@ statfunc u64 get_ctime_nanosec_from_dentry(struct dentry *dentry)
 }
 
 // Read the file path to the given buffer, returning the start offset of the path.
+// The path given starts wit 4 bytes of size.
 statfunc size_t get_path_str_buf(struct path *path, buf_t *out_buf)
 {
     if (path == NULL || out_buf == NULL) {
@@ -185,6 +186,7 @@ statfunc size_t get_path_str_buf(struct path *path, buf_t *out_buf)
     struct qstr d_name;
     unsigned int len;
     unsigned int off;
+    size_t total_len = 0; // New variable to track the total length
     int sz;
 
 #pragma unroll
@@ -213,7 +215,7 @@ statfunc size_t get_path_str_buf(struct path *path, buf_t *out_buf)
         off = buf_off - len;
         // Is string buffer big enough for dentry name?
         sz = 0;
-        if (off <= buf_off) { // verify no wrap occurred
+        if ((off - sizeof(total_len) - 1) <= buf_off) { // verify no wrap occurred
             len = len & ((MAX_PERCPU_BUFSIZE >> 1) - 1);
             sz = bpf_probe_read_str(
                 &(out_buf->buf[off & ((MAX_PERCPU_BUFSIZE >> 1) - 1)]), len, (void *) d_name.name);
@@ -223,6 +225,7 @@ statfunc size_t get_path_str_buf(struct path *path, buf_t *out_buf)
             buf_off -= 1; // remove null byte termination with slash sign
             bpf_probe_read(&(out_buf->buf[buf_off & (MAX_PERCPU_BUFSIZE - 1)]), 1, &slash);
             buf_off -= sz - 1;
+            total_len += sz - 1; // Update total length
         } else {
             // If sz is 0 or 1 we have an error (path can't be null nor an empty string)
             break;
@@ -233,14 +236,19 @@ statfunc size_t get_path_str_buf(struct path *path, buf_t *out_buf)
         // memfd files have no path in the filesystem -> extract their name
         buf_off = 0;
         d_name = get_d_name_from_dentry(dentry);
-        bpf_probe_read_str(&(out_buf->buf[0]), MAX_STRING_SIZE, (void *) d_name.name);
+        total_len = bpf_probe_read_str(
+            &(out_buf->buf[0]) + sizeof(total_len), MAX_STRING_SIZE, (void *) d_name.name);
     } else {
         // Add leading slash
         buf_off -= 1;
         bpf_probe_read(&(out_buf->buf[buf_off & (MAX_PERCPU_BUFSIZE - 1)]), 1, &slash);
         // Null terminate the path string
         bpf_probe_read(&(out_buf->buf[(MAX_PERCPU_BUFSIZE >> 1) - 1]), 1, &zero);
+        total_len += 1;
+        // Allocate place for the length
+        buf_off -= sizeof(total_len);
     }
+    bpf_core_read(&(out_buf->buf[(MAX_PERCPU_BUFSIZE >> 1) - 1]), sizeof(total_len), &total_len);
     return buf_off;
 }
 

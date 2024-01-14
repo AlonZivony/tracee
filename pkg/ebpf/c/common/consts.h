@@ -24,6 +24,7 @@
 #define MAX_STR_ARR_ELEM      38 // TODO: turn this into global variables set w/ libbpfgo
 #define MAX_ARGS_STR_ARR_ELEM 15
 #define MAX_PATH_PREF_SIZE    64
+#define MAX_PATH_SUF_SIZE     MAX_PATH_PREF_SIZE - 1
 #define MAX_PATH_COMPONENTS   20
 #define MAX_BIN_CHUNKS        110
 

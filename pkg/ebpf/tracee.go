@@ -1509,8 +1509,13 @@ func updateCaptureMapFile(fileDir *os.File, filePath string, capturedFiles map[s
 	for fileName, filePath := range capturedFiles {
 		captureFiltered := false
 		// TODO: We need a method to decide if the capture was filtered by FD or type.
-		for _, filterPrefix := range cfg.PathFilter {
-			if !strings.HasPrefix(filePath, filterPrefix) {
+		for _, filterPath := range cfg.PathFilter {
+			check := strings.HasPrefix
+			if strings.HasPrefix(filterPath, "*") {
+				check = strings.HasSuffix
+				filterPath = filterPath[1:]
+			}
+			if !check(filePath, filterPath) {
 				captureFiltered = true
 				break
 			}

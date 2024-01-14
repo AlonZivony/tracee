@@ -112,7 +112,10 @@ statfunc int save_str_to_buf(args_buffer_t *buf, void *ptr, u8 index)
         return 0;
 
     // Read into buffer
-    int sz = bpf_probe_read_str(&(buf->args[buf->offset + 1 + sizeof(int)]), MAX_STRING_SIZE, ptr);
+    size_t saved_size;
+    bpf_probe_read_str(&(buf->args[buf->offset + 1 + sizeof(int)]), sizeof(size_t), &saved_size);
+    int sz = bpf_probe_read_str(
+        &(buf->args[buf->offset + 1 + sizeof(int) + sizeof(saved_size)]), MAX_STRING_SIZE, ptr);
     if (sz > 0) {
         barrier();
         // Satisfy verifier for probe read

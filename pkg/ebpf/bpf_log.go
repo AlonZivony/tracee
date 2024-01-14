@@ -28,6 +28,7 @@ const (
 	BPFLogIDGetCurrentComm // BPF_LOG_ID_GET_CURRENT_COMM
 	BPFLogIDTailCall       // BPF_LOG_ID_TAIL_CALL
 	BPFLogIDMemRead        // BPF_LOG_ID_MEM_READ
+	BPFLogIDStringSize
 )
 
 var stringMap = map[BPFLogType]string{
@@ -43,6 +44,7 @@ var stringMap = map[BPFLogType]string{
 	BPFLogIDGetCurrentComm: "BPF_LOG_ID_GET_CURRENT_COMM",
 	BPFLogIDTailCall:       "BPF_LOG_ID_TAIL_CALL",
 	BPFLogIDMemRead:        "BPF_LOG_ID_MEM_READ",
+	BPFLogIDStringSize:     "BPF_LOG_ID_STRING_SIZE",
 }
 
 var errorMap = map[BPFLogType]string{
@@ -58,6 +60,7 @@ var errorMap = map[BPFLogType]string{
 	BPFLogIDGetCurrentComm: "Failed to get current command",
 	BPFLogIDTailCall:       "Failed to tail call",
 	BPFLogIDMemRead:        "Failed to read memory",
+	BPFLogIDStringSize:     "Corruption in string length",
 }
 
 func (b BPFLogType) String() string {
