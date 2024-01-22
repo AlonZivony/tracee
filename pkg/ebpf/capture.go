@@ -69,7 +69,8 @@ func (t *Tracee) processFileCaptures(ctx context.Context) {
 			metaBuffDecoder := bufferdecoder.New(meta.Metadata[:])
 			var kernelModuleMeta bufferdecoder.KernelModuleMeta
 			var bpfObjectMeta bufferdecoder.BpfObjectMeta
-			if meta.BinType == bufferdecoder.SendVfsWrite || meta.BinType == bufferdecoder.SendVfsRead {
+			switch meta.BinType {
+			case bufferdecoder.SendVfsWrite, bufferdecoder.SendVfsRead:
 				var vfsMeta bufferdecoder.VfsFileMeta
 				err = metaBuffDecoder.DecodeVfsFileMeta(&vfsMeta)
 				if err != nil {
@@ -101,7 +102,7 @@ func (t *Tracee) processFileCaptures(ctx context.Context) {
 						vfsMeta.Pid,
 					)
 				}
-			} else if meta.BinType == bufferdecoder.SendMprotect {
+			case bufferdecoder.SendMprotect:
 				var mprotectMeta bufferdecoder.MprotectWriteMeta
 				err = metaBuffDecoder.DecodeMprotectWriteMeta(&mprotectMeta)
 				if err != nil {
@@ -117,7 +118,7 @@ func (t *Tracee) processFileCaptures(ctx context.Context) {
 					mprotectMeta.Ts += t.bootTime
 				}
 				filename = fmt.Sprintf("bin.pid-%d.ts-%d", mprotectMeta.Pid, mprotectMeta.Ts)
-			} else if meta.BinType == bufferdecoder.SendKernelModule {
+			case bufferdecoder.SendKernelModule:
 				err = metaBuffDecoder.DecodeKernelModuleMeta(&kernelModuleMeta)
 				if err != nil {
 					t.handleError(err)
@@ -133,7 +134,7 @@ func (t *Tracee) processFileCaptures(ctx context.Context) {
 				if kernelModuleMeta.Pid != 0 {
 					filename = fmt.Sprintf("%s.pid-%d", filename, kernelModuleMeta.Pid)
 				}
-			} else if meta.BinType == bufferdecoder.SendBpfObject {
+			case bufferdecoder.SendBpfObject:
 				err = metaBuffDecoder.DecodeBpfObjectMeta(&bpfObjectMeta)
 				if err != nil {
 					t.handleError(err)
@@ -145,7 +146,9 @@ func (t *Tracee) processFileCaptures(ctx context.Context) {
 					filename = fmt.Sprintf("%s.pid-%d", filename, bpfObjectMeta.Pid)
 				}
 				filename = fmt.Sprintf("%s.%d", filename, bpfObjectMeta.Rand)
-			} else {
+			case bufferdecoder.SendProcMem:
+
+			default:
 				t.handleError(errfmt.Errorf("unknown binary type: %d", meta.BinType))
 				continue
 			}
@@ -206,7 +209,12 @@ func (t *Tracee) processFileCaptures(ctx context.Context) {
 				fileHash, _ := t.computeOutFileHash(fullname)
 				// Delete the random int used to differentiate files
 				dotIndex := strings.LastIndex(fullname, ".")
-				err := utils.RenameAt(t.OutDir, fullname, t.OutDir, fullname[:dotIndex]+"."+fileHash)
+				err := utils.RenameAt(
+					t.OutDir,
+					fullname,
+					t.OutDir,
+					fullname[:dotIndex]+"."+fileHash,
+				)
 				if err != nil {
 					t.handleError(err)
 					continue

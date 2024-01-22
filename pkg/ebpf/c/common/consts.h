@@ -26,6 +26,7 @@
 #define MAX_PATH_PREF_SIZE    64
 #define MAX_PATH_COMPONENTS   20
 #define MAX_BIN_CHUNKS        110
+#define MAX_CAPTURE_VECTORS 20
 
 #define CAPTURE_IFACE (1 << 0)
 #define TRACE_IFACE   (1 << 1)
@@ -41,6 +42,7 @@
 #define OPT_CAPTURE_BPF           (1 << 8)
 #define OPT_CAPTURE_FILES_READ    (1 << 9)
 #define OPT_FORK_PROCTREE         (1 << 10)
+#define OPT_
 
 #define STDIN  0
 #define STDOUT 1

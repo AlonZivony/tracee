@@ -640,6 +640,7 @@ struct mm_struct {
         long unsigned int arg_end;
         long unsigned int env_start;
         long unsigned int env_end;
+		struct vm_area_struct *mmap;
     };
 };
 

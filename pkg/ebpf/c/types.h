@@ -125,6 +125,15 @@ enum event_id_e
     MODULE_LOAD,
     MODULE_FREE,
     MAX_EVENT_ID,
+    CAPTURE_FILE_WRITE = 4000,
+    CAPTURE_EXEC,
+    CAPTURE_MODULE,
+    CAPTURE_MEM,
+    CAPTURE_PCAP,
+    CAPTURE_NET_PACKET,
+    CAPTURE_BPF,
+    CAPTURE_FILE_READ,
+    CAPTURE_UNPACKED,
 };
 
 enum signal_event_id_e

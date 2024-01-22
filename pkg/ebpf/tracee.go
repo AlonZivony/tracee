@@ -157,6 +157,9 @@ func GetCaptureEventsList(cfg config.Config) map[events.ID]events.EventState {
 	if pcaps.PcapsEnabled(cfg.Capture.Net) {
 		captureEvents[events.CaptureNetPacket] = policy.AlwaysSubmit
 	}
+	if cfg.Capture.Unpacked {
+		captureEvents[events.CaptureUnpacked] = policy.AlwaysSubmit
+	}
 
 	return captureEvents
 }

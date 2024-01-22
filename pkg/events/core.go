@@ -150,6 +150,7 @@ const (
 	CaptureNetPacket
 	CaptureBpf
 	CaptureFileRead
+	CaptureUnpacked
 )
 
 // Signal meta-events
@@ -10637,6 +10638,18 @@ var CoreEvents = map[ID]Definition{
 			probes: []Probe{
 				{handle: probes.SecurityBPF, required: true},
 			},
+			tailCalls: []TailCall{
+				{"prog_array", "send_bin", []uint32{TailSendBin}},
+			},
+		},
+	},
+	CaptureUnpacked: {
+		id:       CaptureUnpacked,
+		id32Bit:  Sys32Undefined,
+		name:     "capture_unpacked",
+		version:  NewVersion(1, 0, 0),
+		internal: true,
+		dependencies: Dependencies{
 			tailCalls: []TailCall{
 				{"prog_array", "send_bin", []uint32{TailSendBin}},
 			},

@@ -14,6 +14,7 @@ const (
 	SendKernelModule
 	SendBpfObject
 	SendVfsRead
+	SendProcMem
 )
 
 // PLEASE NOTE, YOU MUST UPDATE THE DECODER IF ANY CHANGE TO THIS STRUCT IS DONE.

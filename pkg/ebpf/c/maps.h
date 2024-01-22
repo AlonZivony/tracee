@@ -151,6 +151,7 @@ BPF_PERCPU_ARRAY(scratch_map, scratch_t, 1);                       // scratch sp
 BPF_LRU_HASH(file_modification_map, file_mod_key_t, int, 10240);   // hold file data to decide if should submit file modification event
 BPF_LRU_HASH(io_file_path_cache_map, file_id_t, path_buf_t, 5);    // store cache for IO operations path
 BPF_LRU_HASH(elf_files_map, file_id_t, bool, 64);                  // store cache for file ELF type check
+BPF_LRU_HASH(capture_unpacked_map, u32, bool, 64);                 // store cache for which processes` memory should be captured
 
 // clang-format on
 

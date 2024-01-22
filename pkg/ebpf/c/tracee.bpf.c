@@ -401,6 +401,58 @@ int syscall__execveat(void *ctx)
     return events_perf_submit(&p, SYSCALL_EXECVEAT, 0);
 }
 
+SEC("raw_tracepoint/sys_arch_prctl")
+int syscall__arch_prctl(structvoid *ctx)
+{
+    program_data_t p = {};
+    if (!init_program_data(&p, ctx))
+        return 0;
+
+    if (!p.task_info->syscall_traced)
+        return -1;
+    syscall_data_t *sys = &p.task_info->syscall_data;
+    p.event->context.ts = sys->ts;
+
+    if (!should_submit(CAPTURE_UNPACKED, p.event)) {
+        return 0;
+
+	struct task_struct *task = p.event->task;
+	u32 task_hash = hash_task_id(get_task_host_pid(task), get_task_start_time(task));
+	bool should_capture = bpf_map_lookup_elem(&capture_unpacked_map, &task_hash);
+
+    if (should_capture) {
+		struct mm_struct *mm = get_mm_from_task(task);
+		struct vm_area_struct *vma = BPF_CORE_READ(mm, mmap);
+		struct iovec io_vec[MAX_CAPTURE_VECTORS] {};
+		int i;
+		// Starting from kernel v6.0, vmas are managed using maple trees, removing the need for them to be used as a linked list.
+		// Hence, iterating over the task's vmas is not trivial since v6.0, and is not implemented for now.
+		#pragma unroll
+		for(i=0; i < MAX_CAPTURE_VECTORS; i++) {
+			io_vec[i].iov_base = get_vma_start(vma);
+			io_vec[i].iov_len = get_vma_end(vma) - io_vec[i].iov_base;
+			vma = get_next_vma(vma);
+		}
+
+		if (i == 0) {
+			return 0;
+		}
+		bin_args_t bin_args = {0};
+		u32 pid = p.event->context.task.host_pid;
+		bin_args.type = SEND_PROC_MEM;
+		bpf_probe_read(bin_args.metadata, sizeof(u64), &p.event->context.ts);
+		bpf_probe_read(&bin_args.metadata[8], 4, &pid);
+		bin_args.vec = &io_vec;
+        bin_args.iov_len = i;
+        bin_args->iov_idx = 0;
+		bin_args.ptr = (char *) io_vec[0].iov_base;
+		bin_args.start_off = 0;
+		bin_args.full_size = io_vec[0].iov_len;
+
+		tail_call_send_bin(ctx, &p, &bin_args, TAIL_SEND_BIN);
+	}
+}
+
 statfunc int send_socket_dup(program_data_t *p, u64 oldfd, u64 newfd)
 {
     if (!should_submit(SOCKET_DUP, p->event))
@@ -2807,7 +2859,8 @@ enum bin_type_e
     SEND_MPROTECT,
     SEND_KERNEL_MODULE,
     SEND_BPF_OBJECT,
-    SEND_VFS_READ
+    SEND_VFS_READ,
+	SEND_PROC_MEM
 };
 
 statfunc u32 tail_call_send_bin(void *ctx, program_data_t *p, bin_args_t *bin_args, int tail_call)
@@ -2924,6 +2977,7 @@ statfunc u32 send_bin_helper(void *ctx, void *prog_array, int tail_call)
         bpf_probe_read(
             (void **) &(file_buf_p->buf[F_POS_OFF]), sizeof(off_t), &bin_args->start_off);
 
+		bin_args->start_off += chunk_size;
         // Satisfy validator by setting buffer bounds
         int size = (F_CHUNK_OFF + chunk_size) & (MAX_PERCPU_BUFSIZE - 1);
         bpf_perf_event_output(ctx, &file_writes, BPF_F_CURRENT_CPU, data, size);
@@ -2933,7 +2987,6 @@ statfunc u32 send_bin_helper(void *ctx, void *prog_array, int tail_call)
     bin_args->iov_idx++;
     if (bin_args->iov_idx < bin_args->iov_len) {
         // Handle the rest of write recursively
-        bin_args->start_off += bin_args->full_size;
         struct iovec io_vec;
         bpf_probe_read(&io_vec, sizeof(struct iovec), &bin_args->vec[bin_args->iov_idx]);
         bin_args->ptr = io_vec.iov_base;
@@ -3522,6 +3575,11 @@ int BPF_KPROBE(trace_security_file_mprotect)
 
             if (p.config->options & OPT_EXTRACT_DYN_CODE) {
                 should_extract_code = true;
+            }
+            if (should_submit(CAPTURE_UNPACKED, p.event)) {
+				u32 task_hash = hash_task_id(get_task_host_pid(task), get_task_start_time(task));
+				bool should_capture = true;
+                bpf_map_update_elem(&capture_unpacked_map, &task_hash, &should_capture, BPF_ANY);
             }
         }
         if (should_alert) {

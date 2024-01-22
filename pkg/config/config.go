@@ -102,6 +102,7 @@ type CaptureConfig struct {
 	Mem        bool
 	Bpf        bool
 	Net        PcapsConfig
+	Unpacked   bool
 }
 
 type FileCaptureConfig struct {
