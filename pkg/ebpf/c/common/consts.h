@@ -52,7 +52,18 @@ enum buf_idx_e
 {
     STRING_BUF_IDX,
     FILE_BUF_IDX,
+	CAPTURE_IDX,
     MAX_BUFFERS
+};
+
+enum bin_type_e
+{
+    SEND_VFS_WRITE = 1,
+    SEND_MPROTECT,
+    SEND_KERNEL_MODULE,
+    SEND_BPF_OBJECT,
+    SEND_VFS_READ,
+	SEND_PROC_MEM
 };
 
 // clang-format on

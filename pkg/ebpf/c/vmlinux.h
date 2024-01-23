@@ -285,8 +285,10 @@ struct signal_struct {
 };
 
 struct vm_area_struct {
+    unsigned long vm_start, vm_end;
     long unsigned int vm_flags;
     struct file *vm_file;
+    struct vm_area_struct *vm_next;
 };
 
 typedef unsigned int __kernel_gid32_t;

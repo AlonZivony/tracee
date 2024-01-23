@@ -384,3 +384,16 @@ func (decoder *EbpfDecoder) DecodeMprotectWriteMeta(mprotectWriteMeta *MprotectW
 	decoder.cursor += int(mprotectWriteMeta.GetSizeBytes())
 	return nil
 }
+
+// DecodeUnpackedMeta translates data from the decoder buffer, starting from the decoder cursor, to bufferdecoder.UnpackedMeta struct.
+func (decoder *EbpfDecoder) DecodeUnpackedMeta(unpackedMeta *UnpackedMeta) error {
+	offset := decoder.cursor
+	if len(decoder.buffer[offset:]) < int(unpackedMeta.GetSizeBytes()) {
+		return ErrBufferTooShort
+	}
+	unpackedMeta.Ts = binary.LittleEndian.Uint64(decoder.buffer[offset : offset+8])
+	unpackedMeta.Pid = binary.LittleEndian.Uint32(decoder.buffer[offset+8 : offset+12])
+
+	decoder.cursor += int(unpackedMeta.GetSizeBytes())
+	return nil
+}

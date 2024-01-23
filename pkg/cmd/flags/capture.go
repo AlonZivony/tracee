@@ -118,6 +118,8 @@ func PrepareCapture(captureSlice []string, newBinary bool) (config.CaptureConfig
 			capture.Module = true
 		} else if c == "mem" {
 			capture.Mem = true
+		} else if c == "unpacked" {
+			capture.Unpacked = true
 		} else if c == "bpf" {
 			capture.Bpf = true
 		} else if c == "network" || c == "net" || c == "pcap" {

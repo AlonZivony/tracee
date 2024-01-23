@@ -402,7 +402,7 @@ int syscall__execveat(void *ctx)
 }
 
 SEC("raw_tracepoint/sys_arch_prctl")
-int syscall__arch_prctl(structvoid *ctx)
+int syscall__arch_prctl(void *ctx)
 {
     program_data_t p = {};
     if (!init_program_data(&p, ctx))
@@ -413,7 +413,7 @@ int syscall__arch_prctl(structvoid *ctx)
     syscall_data_t *sys = &p.task_info->syscall_data;
     p.event->context.ts = sys->ts;
 
-    if (!should_submit(CAPTURE_UNPACKED, p.event)) {
+    if (!should_submit(CAPTURE_UNPACKED, p.event))
         return 0;
 
 	struct task_struct *task = p.event->task;
@@ -423,14 +423,15 @@ int syscall__arch_prctl(structvoid *ctx)
     if (should_capture) {
 		struct mm_struct *mm = get_mm_from_task(task);
 		struct vm_area_struct *vma = BPF_CORE_READ(mm, mmap);
-		struct iovec io_vec[MAX_CAPTURE_VECTORS] {};
+		buf_t *buf = get_buf(CAPTURE_IDX);
+		struct iovec *iov = (struct iovec*)&buf->buf[0];
 		int i;
 		// Starting from kernel v6.0, vmas are managed using maple trees, removing the need for them to be used as a linked list.
 		// Hence, iterating over the task's vmas is not trivial since v6.0, and is not implemented for now.
 		#pragma unroll
 		for(i=0; i < MAX_CAPTURE_VECTORS; i++) {
-			io_vec[i].iov_base = get_vma_start(vma);
-			io_vec[i].iov_len = get_vma_end(vma) - io_vec[i].iov_base;
+			iov[i].iov_base = (void *)get_vma_start(vma);
+			iov[i].iov_len = get_vma_end(vma) - get_vma_start(vma);
 			vma = get_next_vma(vma);
 		}
 
@@ -442,15 +443,16 @@ int syscall__arch_prctl(structvoid *ctx)
 		bin_args.type = SEND_PROC_MEM;
 		bpf_probe_read(bin_args.metadata, sizeof(u64), &p.event->context.ts);
 		bpf_probe_read(&bin_args.metadata[8], 4, &pid);
-		bin_args.vec = &io_vec;
+		bin_args.vec = iov;
         bin_args.iov_len = i;
-        bin_args->iov_idx = 0;
-		bin_args.ptr = (char *) io_vec[0].iov_base;
+        bin_args.iov_idx = 0;
+		bin_args.ptr = (char *) iov[0].iov_base;
 		bin_args.start_off = 0;
-		bin_args.full_size = io_vec[0].iov_len;
+		bin_args.full_size = iov[0].iov_len;
 
 		tail_call_send_bin(ctx, &p, &bin_args, TAIL_SEND_BIN);
 	}
+	return 0;
 }
 
 statfunc int send_socket_dup(program_data_t *p, u64 oldfd, u64 newfd)
@@ -2853,16 +2855,6 @@ int BPF_KPROBE(trace_security_socket_setsockopt)
     return events_perf_submit(&p, SECURITY_SOCKET_SETSOCKOPT, 0);
 }
 
-enum bin_type_e
-{
-    SEND_VFS_WRITE = 1,
-    SEND_MPROTECT,
-    SEND_KERNEL_MODULE,
-    SEND_BPF_OBJECT,
-    SEND_VFS_READ,
-	SEND_PROC_MEM
-};
-
 statfunc u32 tail_call_send_bin(void *ctx, program_data_t *p, bin_args_t *bin_args, int tail_call)
 {
     if (p->event->args_buf.offset < ARGS_BUF_SIZE - sizeof(bin_args_t)) {
@@ -3007,6 +2999,21 @@ SEC("raw_tracepoint/send_bin_tp")
 int send_bin_tp(void *ctx)
 {
     return send_bin_helper(ctx, &prog_array_tp, TAIL_SEND_BIN_TP);
+}
+
+SEC("raw_tracepoint/send_bin_capture_unpacked")
+int send_bin_capture_unpacked(void *ctx)
+{
+	buf_t *buf = get_buf(CAPTURE_IDX);
+	struct iovec *iov = (struct iovec*)&buf->buf[0];
+	int zero = 0;
+	event_data_t *event = bpf_map_lookup_elem(&event_data_map, &zero);
+    if (!event || (event->args_buf.offset > ARGS_BUF_SIZE - sizeof(bin_args_t)))
+        return 0;
+
+    bin_args_t *bin_args = (bin_args_t *) &(event->args_buf.args[event->args_buf.offset]);
+	bin_args->vec = iov;
+    return send_bin_helper(ctx, &prog_array, TAIL_SEND_BIN_CAPTURE_UNPACKED);
 }
 
 statfunc int
@@ -3501,9 +3508,6 @@ int BPF_KPROBE(trace_security_file_mprotect)
     if (!init_program_data(&p, ctx))
         return 0;
 
-    if (!should_trace(&p))
-        return 0;
-
     // Load the arguments given to the mprotect syscall (which eventually invokes this function)
     syscall_data_t *sys = &p.task_info->syscall_data;
     if (!p.task_info->syscall_traced ||
@@ -3512,8 +3516,10 @@ int BPF_KPROBE(trace_security_file_mprotect)
 
     int should_submit_mprotect = should_submit(SECURITY_FILE_MPROTECT, p.event);
     int should_submit_mem_prot_alert = should_submit(MEM_PROT_ALERT, p.event);
+	bool should_capture_mem = p.config->options & OPT_EXTRACT_DYN_CODE;
+	bool should_capture_unpacked = should_submit(CAPTURE_UNPACKED, p.event);
 
-    if (!should_submit_mprotect && !should_submit_mem_prot_alert) {
+    if (!should_submit_mprotect && !should_submit_mem_prot_alert && !should_capture_unpacked && !should_capture_mem) {
         return 0;
     }
 
@@ -3523,6 +3529,36 @@ int BPF_KPROBE(trace_security_file_mprotect)
 
     struct file *file = (struct file *) BPF_CORE_READ(vma, vm_file);
     file_info_t file_info = get_file_info(file);
+
+	if ((prev_prot & VM_WRITE) && (reqprot & VM_EXEC) && !(reqprot & VM_WRITE)) {
+		if (should_capture_unpacked) {
+			u32 task_hash = hash_task_id(get_task_host_pid(p.event->task), get_task_start_time(p.event->task));
+			bool should_capture = true;
+			bpf_map_update_elem(&capture_unpacked_map, &task_hash, &should_capture, BPF_ANY);
+		}
+		if (should_capture_mem) {
+			void *addr = (void *) sys->args.args[0];
+        	size_t len = sys->args.args[1];
+			if (addr <= 0)
+            	return 0;
+			// If length is 0, the current page permissions are changed
+			if (len == 0)
+            	len = PAGE_SIZE;
+
+            u32 pid = p.event->context.task.host_pid;
+            bin_args.type = SEND_MPROTECT;
+            bpf_probe_read(bin_args.metadata, sizeof(u64), &p.event->context.ts);
+            bpf_probe_read(&bin_args.metadata[8], 4, &pid);
+            bin_args.ptr = (char *) addr;
+            bin_args.start_off = 0;
+            bin_args.full_size = len;
+
+            tail_call_send_bin(ctx, &p, &bin_args, TAIL_SEND_BIN);
+		}
+	}
+
+	if (!should_trace(&p))
+        return 0;
 
     if (should_submit_mprotect) {
         void *addr = (void *) sys->args.args[0];
@@ -3556,7 +3592,6 @@ int BPF_KPROBE(trace_security_file_mprotect)
 
         u32 alert;
         bool should_alert = false;
-        bool should_extract_code = false;
 
         if ((!(prev_prot & VM_EXEC)) && (reqprot & VM_EXEC)) {
             alert = ALERT_MPROT_X_ADD;
@@ -3572,31 +3607,11 @@ int BPF_KPROBE(trace_security_file_mprotect)
         if ((prev_prot & VM_WRITE) && (reqprot & VM_EXEC) && !(reqprot & VM_WRITE)) {
             alert = ALERT_MPROT_W_REM;
             should_alert = true;
-
-            if (p.config->options & OPT_EXTRACT_DYN_CODE) {
-                should_extract_code = true;
-            }
-            if (should_submit(CAPTURE_UNPACKED, p.event)) {
-				u32 task_hash = hash_task_id(get_task_host_pid(task), get_task_start_time(task));
-				bool should_capture = true;
-                bpf_map_update_elem(&capture_unpacked_map, &task_hash, &should_capture, BPF_ANY);
-            }
         }
         if (should_alert) {
             reset_event_args(&p);
             submit_mem_prot_alert_event(
                 &p.event->args_buf, alert, addr, len, reqprot, prev_prot, file_info);
-        }
-        if (should_extract_code) {
-            u32 pid = p.event->context.task.host_pid;
-            bin_args.type = SEND_MPROTECT;
-            bpf_probe_read(bin_args.metadata, sizeof(u64), &p.event->context.ts);
-            bpf_probe_read(&bin_args.metadata[8], 4, &pid);
-            bin_args.ptr = (char *) addr;
-            bin_args.start_off = 0;
-            bin_args.full_size = len;
-
-            tail_call_send_bin(ctx, &p, &bin_args, TAIL_SEND_BIN);
         }
     }
 

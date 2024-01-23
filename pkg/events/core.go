@@ -10650,8 +10650,12 @@ var CoreEvents = map[ID]Definition{
 		version:  NewVersion(1, 0, 0),
 		internal: true,
 		dependencies: Dependencies{
+			probes: []Probe{
+				{handle: probes.SecurityFileMProtect, required: true},
+			},
 			tailCalls: []TailCall{
-				{"prog_array", "send_bin", []uint32{TailSendBin}},
+				{"prog_array", "send_bin_capture_unpacked", []uint32{TailSendBinCaptureUnpacked}},
+				{"sys_enter_init_tail", "sys_enter_init", []uint32{uint32(ArchPrctl)}},
 			},
 		},
 	},

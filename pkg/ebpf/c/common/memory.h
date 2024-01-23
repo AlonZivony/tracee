@@ -15,7 +15,7 @@ statfunc unsigned long get_env_end_from_mm(struct mm_struct *);
 statfunc unsigned long get_vma_flags(struct vm_area_struct *);
 statfunc unsigned long get_vma_start(struct vm_area_struct *);
 statfunc unsigned long get_vma_end(struct vm_area_struct *);
-statfunc unsigned long get_next_vma(struct vm_area_struct *);
+statfunc struct vm_area_struct * get_next_vma(struct vm_area_struct *);
 
 // FUNCTIONS
 
@@ -59,7 +59,7 @@ statfunc unsigned long get_vma_end(struct vm_area_struct *vma)
     return BPF_CORE_READ(vma, vm_end);
 }
 
-statfunc unsigned long get_next_vma(struct vm_area_struct *vma)
+statfunc struct vm_area_struct * get_next_vma(struct vm_area_struct *vma)
 {
     return BPF_CORE_READ(vma, vm_next);
 }

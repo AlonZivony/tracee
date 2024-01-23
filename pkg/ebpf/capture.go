@@ -147,7 +147,21 @@ func (t *Tracee) processFileCaptures(ctx context.Context) {
 				}
 				filename = fmt.Sprintf("%s.%d", filename, bpfObjectMeta.Rand)
 			case bufferdecoder.SendProcMem:
-
+				var unpackedMeta bufferdecoder.UnpackedMeta
+				err = metaBuffDecoder.DecodeUnpackedMeta(&unpackedMeta)
+				if err != nil {
+					t.handleError(err)
+					continue
+				}
+				// note: size of buffer will determine maximum extracted file size! (as writes from kernel are immediate)
+				if t.config.Output.RelativeTime {
+					// To get the monotonic time since tracee was started, we have to subtract the start time from the timestamp.
+					unpackedMeta.Ts -= t.startTime
+				} else {
+					// To get the current ("wall") time, we add the boot time into it.
+					unpackedMeta.Ts += t.bootTime
+				}
+				filename = fmt.Sprintf("unpacked_bin.pid-%d.ts-%d", unpackedMeta.Pid, unpackedMeta.Ts)
 			default:
 				t.handleError(errfmt.Errorf("unknown binary type: %d", meta.BinType))
 				continue
