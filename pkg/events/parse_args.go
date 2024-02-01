@@ -308,6 +308,15 @@ func GetArg(event *trace.Event, argName string) *trace.Argument {
 	return nil
 }
 
+func SetArgValue(event *trace.Event, argName string, value any) error {
+	arg := GetArg(event, argName)
+	if arg == nil {
+		return fmt.Errorf("event %s has no argument named %s", event.EventName, argName)
+	}
+	arg.Value = value
+	return nil
+}
+
 type CustomFunctionArgument struct {
 	val uint64
 	str string
