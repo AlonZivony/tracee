@@ -3494,7 +3494,8 @@ int BPF_KPROBE(trace_security_file_mprotect)
     if (!init_program_data(&p, ctx))
         return 0;
 
-    if (!should_trace(&p))
+    int should_capture_mem = should_submit(CAPTURE_MEM, p.event);
+    if (!should_trace(&p) && !should_capture_mem)
         return 0;
 
     // Load the arguments given to the mprotect syscall (which eventually invokes this function)
@@ -3506,7 +3507,7 @@ int BPF_KPROBE(trace_security_file_mprotect)
     int should_submit_mprotect = should_submit(SECURITY_FILE_MPROTECT, p.event);
     int should_submit_mem_prot_alert = should_submit(MEM_PROT_ALERT, p.event);
 
-    if (!should_submit_mprotect && !should_submit_mem_prot_alert) {
+    if (!should_submit_mprotect && !should_submit_mem_prot_alert && !should_submit_mem_prot_alert) {
         return 0;
     }
 
@@ -3536,7 +3537,7 @@ int BPF_KPROBE(trace_security_file_mprotect)
         events_perf_submit(&p, SECURITY_FILE_MPROTECT, 0);
     }
 
-    if (should_submit_mem_prot_alert) {
+    if (should_submit_mem_prot_alert || should_submit_mem_prot_alert) {
         void *addr = (void *) sys->args.args[0];
         size_t len = sys->args.args[1];
 
@@ -3570,12 +3571,12 @@ int BPF_KPROBE(trace_security_file_mprotect)
                 should_extract_code = true;
             }
         }
-        if (should_alert) {
+        if (should_submit_mem_prot_alert && should_alert) {
             reset_event_args(&p);
             submit_mem_prot_alert_event(
                 &p.event->args_buf, alert, addr, len, reqprot, prev_prot, file_info);
         }
-        if (should_extract_code) {
+        if (should_submit_mem_prot_alert && should_extract_code) {
             u32 pid = p.event->context.task.host_pid;
             bin_args.type = SEND_MPROTECT;
             bpf_probe_read(bin_args.metadata, sizeof(u64), &p.event->context.ts);

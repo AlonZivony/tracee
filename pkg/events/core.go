@@ -12405,6 +12405,9 @@ var CoreEvents = map[ID]Definition{
 		version:  NewVersion(1, 0, 0),
 		internal: true,
 		dependencies: Dependencies{
+			probes: []Probe{
+				{handle: probes.SecurityFileMProtect, required: true},
+			},
 			tailCalls: []TailCall{
 				{"prog_array", "send_bin", []uint32{TailSendBin}},
 			},

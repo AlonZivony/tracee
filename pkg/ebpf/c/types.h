@@ -127,6 +127,14 @@ enum event_id_e
     MAX_EVENT_ID,
 };
 
+enum capture_event_id_e
+{
+    CAPTURE_FILE_WRITE = 4000,
+    CAPTURE_EXEC,
+    CAPTURE_MODULE,
+    CAPTURE_MEM,
+}
+
 enum signal_event_id_e
 {
     SIGNAL_CGROUP_MKDIR = 5000,
