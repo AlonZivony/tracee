@@ -1083,52 +1083,41 @@ func (t *Tracee) cancelEventFromEventState(evtID events.ID) {
 // attachProbes attaches selected events probes to their respective eBPF progs
 func (t *Tracee) attachProbes() error {
 	var err error
-	type eventProbe struct {
-		event events.ID
-		probe events.Probe
+
+	// Get probe dependencies for a given event ID
+	getProbeDeps := func(id events.ID) []events.Probe {
+		return events.Core.GetDefinitionByID(id).GetDependencies().GetProbes()
 	}
 
 	// Get the list of probes to attach for each event being traced.
-	probesToEvents := make(map[probes.Handle][]eventProbe)
+	probesToEvents := make(map[events.Probe][]events.ID)
 	for id := range t.eventsState {
 		if !events.Core.IsDefined(id) {
 			continue
 		}
-		eventDefinition := events.Core.GetDefinitionByID(id)
-		for _, probeDep := range eventDefinition.GetDependencies().GetProbes() {
-			isRelevant, err := probeDep.IsOsCompatible(t.config.OSInfo)
-			if err != nil {
-				logger.Errorw("Event's probe relevance check failed, assuming not relevant",
-					"event", eventDefinition.GetName(), "probe", probeDep.GetHandle(),
-					"error", err)
-				continue
-			}
-			if isRelevant {
-				handle := probeDep.GetHandle()
-				eprobe := eventProbe{probe: probeDep, event: id}
-				probesToEvents[handle] = append(probesToEvents[handle], eprobe)
-			}
+		for _, probeDep := range getProbeDeps(id) {
+			probesToEvents[probeDep] = append(probesToEvents[probeDep], id)
 		}
 	}
 
 	// Attach probes to their respective eBPF programs or cancel events if a required probe is missing.
-	for handle, eventsProbes := range probesToEvents {
-		err = t.probes.Attach(handle, t.cgroups) // attach bpf program to probe
+	for probe, evtID := range probesToEvents {
+		err = t.probes.Attach(probe.GetHandle(), t.cgroups) // attach bpf program to probe
 		if err != nil {
-			for _, evProbe := range eventsProbes {
-				evtName := events.Core.GetDefinitionByID(evProbe.event).GetName()
-				if evProbe.probe.IsRequired() {
+			for _, evtID := range evtID {
+				evtName := events.Core.GetDefinitionByID(evtID).GetName()
+				if probe.IsRequired() {
 					logger.Warnw(
 						"Cancelling event and its dependencies because of missing probe",
-						"missing probe", handle, "event", evtName,
+						"missing probe", probe.GetHandle(), "event", evtName,
 						"error", err,
 					)
-					t.cancelEventFromEventState(evProbe.event) // cancel event recursively
+					t.cancelEventFromEventState(evtID) // cancel event recursively
 				} else {
 					logger.Debugw(
 						"Failed to attach non-required probe for event",
 						"event", evtName,
-						"probe", handle, "error", err,
+						"probe", probe.GetHandle(), "error", err,
 					)
 				}
 			}

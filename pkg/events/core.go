@@ -19,6 +19,11 @@ const (
 
 type ID int32
 
+type ProbeSet struct {
+	probes []Probe
+	fallback *ProbeSet
+}
+
 // NOTE: Events should match defined values in ebpf code.
 
 // Common events (used by all architectures).
@@ -12936,11 +12941,32 @@ var CoreEvents = map[ID]Definition{
 		sets:    []string{"proc"},
 		dependencies: Dependencies{
 			ids: []ID{ExecuteFinished, SecurityBprmCredsForExec}, // For kernel version >= 5.8
-			probes: []Probe{
-				{handle: probes.ExecBinprm, required: false,
-					relevantKernels: []KernelDependency{{version: "5.8", comparison: Older}}},
-				{handle: probes.ExecBinprmRet, required: false,
-					relevantKernels: []KernelDependency{{version: "5.8", comparison: Older}}},
+			probes: []ProbeSet{
+				{
+					probes: []Probe{
+						{
+							handle: probes.ExecBinprm, required: false,
+							relevantKernels: []KernelDependency{{version: "5.8", comparison: Older}}
+						},
+						{
+							handle: probes.ExecBinprmRet, required: false,
+							relevantKernels: []KernelDependency{{version: "5.8", comparison: Older}}
+						},
+					},
+					fallback: &ProbeSet{
+						probes: []Probe{
+							{
+								handle: probes.SecurityBprmCredsForExec, required: true,
+								relevantKernels: []KernelDependency{
+									{
+										version:    "5.8",
+										comparison: NewerEquals,
+									},
+								},
+							},
+						},
+					},
+				},
 			},
 			tailCalls: []TailCall{
 				{"prog_array", "trace_execute_failed1", []uint32{TailExecBinprm1}},
