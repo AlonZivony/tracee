@@ -1084,42 +1084,69 @@ func (t *Tracee) cancelEventFromEventState(evtID events.ID) {
 func (t *Tracee) attachProbes() error {
 	var err error
 
+	type eventProbeSet struct {
+		id     events.ID
+		probes events.ProbeSet
+	}
+
 	// Get probe dependencies for a given event ID
-	getProbeDeps := func(id events.ID) []events.Probe {
-		return events.Core.GetDefinitionByID(id).GetDependencies().GetProbes()
+	getProbeDeps := func(id events.ID) []events.ProbeSet {
+		return events.Core.GetDefinitionByID(id).GetDependencies().GetProbesSets()
 	}
 
 	// Get the list of probes to attach for each event being traced.
-	probesToEvents := make(map[events.Probe][]events.ID)
+	var probesToEvents []eventProbeSet
 	for id := range t.eventsState {
 		if !events.Core.IsDefined(id) {
 			continue
 		}
 		for _, probeDep := range getProbeDeps(id) {
-			probesToEvents[probeDep] = append(probesToEvents[probeDep], id)
+			eprobe := eventProbeSet{probes: probeDep, id: id}
+			probesToEvents = append(probesToEvents, eprobe)
 		}
 	}
 
 	// Attach probes to their respective eBPF programs or cancel events if a required probe is missing.
-	for probe, evtID := range probesToEvents {
-		err = t.probes.Attach(probe.GetHandle(), t.cgroups) // attach bpf program to probe
-		if err != nil {
-			for _, evtID := range evtID {
-				evtName := events.Core.GetDefinitionByID(evtID).GetName()
-				if probe.IsRequired() {
+	attachmentResults := make(map[probes.Handle]bool)
+	for i := 0; i < len(probesToEvents); i++ {
+		eProbes := probesToEvents[i]
+		for _, pr := range eProbes.probes.GetProbes() {
+			handle := pr.GetHandle()
+			attachSucceed, tried := attachmentResults[handle]
+			if !tried {
+				err = t.probes.Attach(handle, t.cgroups) // attach bpf program to probe
+				attachSucceed = err == nil
+				attachmentResults[handle] = attachSucceed
+			}
+			if attachSucceed {
+				continue
+			}
+			// Determine whether to try fallback set or even cancel the event
+			evtName := events.Core.GetDefinitionByID(eProbes.id).GetName()
+			if pr.IsRequired() {
+				fallbackSet := eProbes.probes.GetFallback()
+				if fallbackSet == nil {
 					logger.Warnw(
 						"Cancelling event and its dependencies because of missing probe",
-						"missing probe", probe.GetHandle(), "event", evtName,
+						"missing probe", handle, "event", evtName,
 						"error", err,
 					)
-					t.cancelEventFromEventState(evtID) // cancel event recursively
-				} else {
-					logger.Debugw(
-						"Failed to attach non-required probe for event",
-						"event", evtName,
-						"probe", probe.GetHandle(), "error", err,
-					)
+					t.cancelEventFromEventState(eProbes.id) // cancel event recursively
+					continue
 				}
+				logger.Debugw(
+					"Failed to attach required probe for event - attaching fallback set",
+					"event", evtName,
+					"probe", handle, "error", err,
+				)
+				fallbackProbes := eventProbeSet{probes: *fallbackSet, id: eProbes.id}
+				probesToEvents = append(probesToEvents, fallbackProbes)
+			} else {
+				logger.Debugw(
+					"Failed to attach non-required probe for event",
+					"event", evtName,
+					"probe", handle, "error", err,
+				)
 			}
 		}
 	}

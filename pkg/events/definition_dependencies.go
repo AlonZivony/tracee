@@ -13,6 +13,7 @@ type Dependencies struct {
 	probes       []Probe
 	tailCalls    []TailCall
 	capabilities Capabilities
+	fallback     *Dependencies
 }
 
 func NewDependencies(
@@ -141,8 +142,6 @@ const (
 	TailHiddenKernelModuleKset
 	TailHiddenKernelModuleModTree
 	TailHiddenKernelModuleNewModOnly
-	TailSecurityBprmCredsForExec1
-	TailSecurityBprmCredsForExec2
 	MaxTail
 )
 
