@@ -13,6 +13,7 @@ type Dependencies struct {
 	probes       []Probe
 	tailCalls    []TailCall
 	capabilities Capabilities
+	fallback     *Dependencies
 }
 
 func NewDependencies(
@@ -71,6 +72,14 @@ func (d Dependencies) GetTailCalls() []TailCall {
 
 func (d Dependencies) GetCapabilities() Capabilities {
 	return d.capabilities
+}
+
+func (d Dependencies) HasFallback() bool {
+	return d.fallback != nil
+}
+
+func (d Dependencies) GetFallback() Dependencies {
+	return *d.fallback
 }
 
 // Probe

@@ -26,7 +26,7 @@ func (t *Tracee) UpdateKallsyms() error {
 
 	// Wrap long method names.
 	evtDefSymDeps := func(id events.ID) []events.KSymbol {
-		return events.Core.GetDefinitionByID(id).GetDependencies().GetKSymbols()
+		return t.usedEventsDependencies[id].GetKSymbols()
 	}
 
 	// Get the symbols all events being traced require (t.eventsState already
