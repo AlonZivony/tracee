@@ -1063,39 +1063,51 @@ func (t *Tracee) attachProbes() error {
 		return deps.GetProbes()
 	}
 
-	// Get the list of probes to attach for each event being traced.
-	probesToEvents := make(map[events.Probe][]events.ID)
-	for id := range t.eventsState {
-		if !events.Core.IsDefined(id) {
-			continue
+	// If some probe fails to load, it might result going to its events fallback dependencies.
+	// This will result a change in the probes that are needed to be attached.
+	// Because there is no problem with calling the attach method of a probe twice,
+	// rerunning the whole function is a good solution to make sure all the new probes are attached.
+	for {
+		needsRerun := false
+		// Get the list of probes to attach for each event being traced.
+		probesToEvents := make(map[events.Probe][]events.ID)
+		for id := range t.eventsState {
+			if !events.Core.IsDefined(id) {
+				continue
+			}
+			for _, probeDep := range getProbeDeps(id) {
+				probesToEvents[probeDep] = append(probesToEvents[probeDep], id)
+			}
 		}
-		for _, probeDep := range getProbeDeps(id) {
-			probesToEvents[probeDep] = append(probesToEvents[probeDep], id)
-		}
-	}
 
-	// Attach probes to their respective eBPF programs or cancel events if a required probe is missing.
-	for probe, evtID := range probesToEvents {
-		err = t.probes.Attach(probe.GetHandle(), t.cgroups) // attach bpf program to probe
-		if err != nil {
-			for _, evtID := range evtID {
-				evtName := events.Core.GetDefinitionByID(evtID).GetName()
-				if probe.IsRequired() {
-					t.eventsDependencies.RemoveEvent(evtID)
-					t.removeEventFromState(evtID)
-					logger.Warnw(
-						"Cancelling event and its dependencies because of missing probe",
-						"missing probe", probe.GetHandle(), "event", evtName,
-						"error", err,
-					)
-				} else {
-					logger.Debugw(
-						"Failed to attach non-required probe for event",
-						"event", evtName,
-						"probe", probe.GetHandle(), "error", err,
-					)
+		// Attach probes to their respective eBPF programs or cancel events if a required probe is missing.
+		for probe, evtID := range probesToEvents {
+			err = t.probes.Attach(probe.GetHandle(), t.cgroups) // attach bpf program to probe
+			if err != nil {
+				for _, evtID := range evtID {
+					evtName := events.Core.GetDefinitionByID(evtID).GetName()
+					if probe.IsRequired() {
+						if !t.eventsDependencies.FailEvent(evtID) {
+							needsRerun = true
+						}
+						t.removeEventFromState(evtID)
+						logger.Warnw(
+							"Cancelling event and its dependencies because of missing probe",
+							"missing probe", probe.GetHandle(), "event", evtName,
+							"error", err,
+						)
+					} else {
+						logger.Debugw(
+							"Failed to attach non-required probe for event",
+							"event", evtName,
+							"probe", probe.GetHandle(), "error", err,
+						)
+					}
 				}
 			}
+		}
+		if !needsRerun {
+			break
 		}
 	}
 	return nil

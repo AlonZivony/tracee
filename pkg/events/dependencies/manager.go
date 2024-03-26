@@ -71,6 +71,24 @@ func (t *Manager) RemoveEvent(id events.ID) {
 	t.removeDependants(node)
 }
 
+// FailEvent is similar to RemoveEvent, except for the fact that instead of
+// removing the current event it will try to use its fallback dependencies.
+// The old events dependencies of it will be removed in any case.
+// The event will be removed if it has no fallback though, and with it the events
+// that depend on it.
+// The return value specifies if the event was removed or not from the tree
+func (t *Manager) FailEvent(id events.ID) bool {
+	node := t.getNode(id)
+	t.removeNodeFromDependencies(node)
+	if !node.fallback() {
+		t.removeNode(id)
+		t.failDependants(node)
+		return true
+	}
+	t.buildNode(node)
+	return false
+}
+
 func (t *Manager) getNode(id events.ID) *Node {
 	return t.nodes[id]
 }
@@ -141,6 +159,16 @@ func (t *Manager) removeNodeFromDependencies(node *Node) {
 			t.RemoveEvent(dependencyEvent)
 			for _, onRemove := range t.onIndirectRemove {
 				onRemove(dependencyEvent)
+			}
+		}
+	}
+}
+
+func (t *Manager) failDependants(node *Node) {
+	for _, dependantEvent := range node.GetDependents() {
+		if t.FailEvent(dependantEvent) {
+			for _, onRemove := range t.onIndirectRemove {
+				onRemove(dependantEvent)
 			}
 		}
 	}

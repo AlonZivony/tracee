@@ -54,3 +54,13 @@ func (n *Node) addDependent(dependent events.ID) {
 func (n *Node) removeDependent(dependent events.ID) {
 	delete(n.dependents, dependent)
 }
+
+// fallback tries to change the node to is its dependencies` fallback.
+// Return whether it succeeded or not.
+func (n *Node) fallback() bool {
+	if !n.GetDependencies().HasFallback() {
+		return false
+	}
+	n.dependencies = n.GetDependencies().GetFallback()
+	return true
+}
