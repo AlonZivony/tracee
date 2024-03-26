@@ -28,6 +28,7 @@ import (
 	"github.com/aquasecurity/tracee/pkg/ebpf/probes"
 	"github.com/aquasecurity/tracee/pkg/errfmt"
 	"github.com/aquasecurity/tracee/pkg/events"
+	"github.com/aquasecurity/tracee/pkg/events/dependencies"
 	"github.com/aquasecurity/tracee/pkg/events/derive"
 	"github.com/aquasecurity/tracee/pkg/events/sorting"
 	"github.com/aquasecurity/tracee/pkg/events/trigger"
@@ -119,7 +120,7 @@ type Tracee struct {
 	// policyManager manages policy state
 	policyManager *policyManager
 	// The dependencies of events used by Tracee
-	usedEventsDependencies map[events.ID]events.Dependencies
+	eventsDependencies *dependencies.Manager
 }
 
 func (t *Tracee) Stats() *metrics.Stats {
@@ -163,33 +164,32 @@ func GetCaptureEventsList(cfg config.Config) map[events.ID]events.EventState {
 	return captureEvents
 }
 
-// handleEventsDependencies handles all events dependencies recursively.
-func (t *Tracee) handleEventsDependencies(givenEvtId events.ID, givenEvtState events.EventState) {
-	givenEventDependencies := t.usedEventsDependencies[givenEvtId]
-	for _, depEventId := range givenEventDependencies.GetIDs() {
-		depEventState, hasState := t.eventsState[depEventId]
-		// Make sure dependencies are submitted if the given event is submitted.
-		depEventState.Submit |= givenEvtState.Submit
-		t.chooseEvent(depEventId, depEventState)
-		if !hasState {
-			t.handleEventsDependencies(depEventId, givenEvtState)
-		}
-
-		// If the given event is a signature, mark all dependencies as signatures.
-		if events.Core.GetDefinitionByID(givenEvtId).IsSignature() {
-			t.eventSignatures[depEventId] = true
-		}
-	}
-}
-
-func (t *Tracee) chooseEvent(eventID events.ID, chosenState events.EventState) {
+func (t *Tracee) addEventState(eventID events.ID, chosenState events.EventState) {
 	currentState := t.eventsState[eventID]
 	currentState.Submit |= chosenState.Submit
 	currentState.Emit |= chosenState.Emit
-	t.eventsState[eventID] = chosenState
-	if _, ok := t.usedEventsDependencies[eventID]; !ok {
-		t.usedEventsDependencies[eventID] = events.Core.GetDefinitionByID(eventID).GetDependencies()
+	t.eventsState[eventID] = currentState
+}
+
+func (t *Tracee) chooseEvent(eventID events.ID, chosenState events.EventState) {
+	t.addEventState(eventID, chosenState)
+	t.eventsDependencies.AddEvent(eventID)
+}
+
+// addDependencyEventToState adds to tracee's state an event that is a dependency of other event
+// The difference from chosen events is that it should not be emitted
+func (t *Tracee) addDependencyEventToState(dependantEvtId events.ID, evtID events.ID) {
+	dependantEvent := t.eventsState[dependantEvtId]
+	dependantEvent.Emit = 0
+	t.addEventState(evtID, dependantEvent)
+	if events.Core.GetDefinitionByID(evtID).IsSignature() {
+		t.eventSignatures[evtID] = true
 	}
+}
+
+func (t *Tracee) removeEventFromState(evtID events.ID) {
+	delete(t.eventsState, evtID)
+	delete(t.eventSignatures, evtID)
 }
 
 // New creates a new Tracee instance based on a given valid Config. It is expected that it won't
@@ -214,7 +214,14 @@ func New(cfg config.Config) (*Tracee, error) {
 		eventSignatures: make(map[events.ID]bool),
 		streamsManager:  streams.NewStreamsManager(),
 		policyManager:   policyManager,
+		eventsDependencies: dependencies.NewDependenciesManager(
+			func(id events.ID) events.Dependencies {
+				return events.Core.GetDefinitionByID(id).GetDependencies()
+			}),
 	}
+
+	t.eventsDependencies.SubscribeIndirectAdd(t.addDependencyEventToState)
+	t.eventsDependencies.SubscribeIndirectRemove(t.removeEventFromState)
 
 	// Initialize capabilities rings soon
 
@@ -289,14 +296,6 @@ func New(cfg config.Config) (*Tracee, error) {
 		}
 	}
 
-	// Handle all essential events dependencies
-
-	// TODO: extract this to a function to be called from here and from
-	// policies changes.
-	for id, state := range t.eventsState {
-		t.handleEventsDependencies(id, state)
-	}
-
 	// Update capabilities rings with all events dependencies
 
 	// TODO: extract this to a function to be called from here and from
@@ -305,7 +304,7 @@ func New(cfg config.Config) (*Tracee, error) {
 		if !events.Core.IsDefined(id) {
 			return t, errfmt.Errorf("event %d is not defined", id)
 		}
-		deps, ok := t.usedEventsDependencies[id]
+		deps, ok := t.eventsDependencies.GetEvent(id)
 		if ok {
 			// We don't know in this stage which fallback will be used,
 			// so add all needed capabilities by all of them
@@ -836,7 +835,8 @@ func (t *Tracee) getUnavKsymsPerEvtID() map[events.ID][]string {
 	unavSymsPerEvtID := map[events.ID][]string{}
 
 	evtDefSymDeps := func(id events.ID) []events.KSymbol {
-		return t.usedEventsDependencies[id].GetKSymbols()
+		deps, _ := t.eventsDependencies.GetEvent(id)
+		return deps.GetKSymbols()
 	}
 
 	for evtID := range t.eventsState {
@@ -877,7 +877,8 @@ func (t *Tracee) validateKallsymsDependencies() {
 
 		// Find all events that depend on eventToCancel
 		for eventID := range t.eventsState {
-			depsIDs := t.usedEventsDependencies[eventID].GetIDs()
+			deps, _ := t.eventsDependencies.GetEvent(eventID)
+			depsIDs := deps.GetIDs()
 			for _, depID := range depsIDs {
 				if depID == eventToCancel {
 					depsToCancel[eventID] = eventNameToCancel
@@ -1052,81 +1053,51 @@ func (t *Tracee) populateFilterMaps(newPolicies *policy.Policies, updateProcTree
 	return nil
 }
 
-// cancelEventFromEventState cancels an event and all its dependencies from the eventsState map.
-func (t *Tracee) cancelEventFromEventState(evtID events.ID) {
-	delete(t.eventsState, evtID)
-	evtDeps := t.usedEventsDependencies[evtID]
-	for _, depId := range evtDeps.GetIDs() {
-		state, ok := t.eventsState[depId]
-		// TODO: determine if the event is a dependency of another event before canceling it
-		if ok && state.Emit == 0 {
-			t.cancelEventFromEventState(depId)
-		}
-	}
-	delete(t.usedEventsDependencies, evtID)
-}
-
 // attachProbes attaches selected events probes to their respective eBPF progs
 func (t *Tracee) attachProbes() error {
 	var err error
 
 	// Get probe dependencies for a given event ID
 	getProbeDeps := func(id events.ID) []events.Probe {
-		return t.usedEventsDependencies[id].GetProbes()
+		deps, _ := t.eventsDependencies.GetEvent(id)
+		return deps.GetProbes()
 	}
 
-	// Will try to attach all probes for Tracee's chosen events.
-	// If a probe fails to attach, will try to use the fallback dependencies of the choosing event.
-	// Because the new dependencies might be need events with dependencies of their own, will rerun
-	// all the logic (assuming that attachment of the same probe will be avoided after the second
-	// time by the probe attachment implementation).
-	for {
-		needsRerun := false
-		// Get the list of probes to attach for each event being traced.
-		probesToEvents := make(map[events.Probe][]events.ID)
-		for id := range t.eventsState {
-			if !events.Core.IsDefined(id) {
-				continue
-			}
-			for _, probeDep := range getProbeDeps(id) {
-				probesToEvents[probeDep] = append(probesToEvents[probeDep], id)
-			}
+	// Get the list of probes to attach for each event being traced.
+	probesToEvents := make(map[events.Probe][]events.ID)
+	for id := range t.eventsState {
+		if !events.Core.IsDefined(id) {
+			continue
 		}
+		for _, probeDep := range getProbeDeps(id) {
+			probesToEvents[probeDep] = append(probesToEvents[probeDep], id)
+		}
+	}
 
-		// Attach probes to their respective eBPF programs or cancel events if a required probe is missing.
-		for probe, evtID := range probesToEvents {
-			err = t.probes.Attach(probe.GetHandle(), t.cgroups) // attach bpf program to probe
-			if err != nil {
-				for _, evtID := range evtID {
-					evtName := events.Core.GetDefinitionByID(evtID).GetName()
-					evtDependencies := t.usedEventsDependencies[evtID]
-					if probe.IsRequired() {
-						if evtDependencies.HasFallback() {
-							evtDependencies = evtDependencies.GetFallback()
-							t.handleEventsDependencies(evtID, t.eventsState[evtID])
-							needsRerun = true
-						}
-						logger.Warnw(
-							"Cancelling event and its dependencies because of missing probe",
-							"missing probe", probe.GetHandle(), "event", evtName,
-							"error", err,
-						)
-						t.cancelEventFromEventState(evtID) // cancel event recursively
-					} else {
-						logger.Debugw(
-							"Failed to attach non-required probe for event",
-							"event", evtName,
-							"probe", probe.GetHandle(), "error", err,
-						)
-					}
+	// Attach probes to their respective eBPF programs or cancel events if a required probe is missing.
+	for probe, evtID := range probesToEvents {
+		err = t.probes.Attach(probe.GetHandle(), t.cgroups) // attach bpf program to probe
+		if err != nil {
+			for _, evtID := range evtID {
+				evtName := events.Core.GetDefinitionByID(evtID).GetName()
+				if probe.IsRequired() {
+					t.eventsDependencies.RemoveEvent(evtID)
+					t.removeEventFromState(evtID)
+					logger.Warnw(
+						"Cancelling event and its dependencies because of missing probe",
+						"missing probe", probe.GetHandle(), "event", evtName,
+						"error", err,
+					)
+				} else {
+					logger.Debugw(
+						"Failed to attach non-required probe for event",
+						"event", evtName,
+						"probe", probe.GetHandle(), "error", err,
+					)
 				}
 			}
 		}
-		if !needsRerun {
-			break
-		}
 	}
-
 	return nil
 }
 
