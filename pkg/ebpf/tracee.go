@@ -13,7 +13,6 @@ import (
 
 	"github.com/aquasecurity/tracee/pkg/producer"
 
-	lru "github.com/hashicorp/golang-lru/v2"
 	"kernel.org/pub/linux/libs/security/libcap/cap"
 
 	bpf "github.com/aquasecurity/libbpfgo"
@@ -470,11 +469,6 @@ func (t *Tracee) Init(ctx gocontext.Context) error {
 // Not all the things are related directly to the eBPF, as they also affect the pipeline and environment.
 func (t *Tracee) initBPFProducing(ctx gocontext.Context) error {
 	var err error
-
-	initReq, err := t.generateInitValues()
-	if err != nil {
-		return errfmt.Errorf("failed to generate required init values: %s", err)
-	}
 
 	// Init kernel symbols map
 
