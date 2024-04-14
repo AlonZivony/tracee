@@ -348,7 +348,7 @@ func (socCache collisionChecksCache) setObjCollisions(key collisionsKey, collisi
 
 type loadingSharedObj struct { // extends ObjInfo
 	sharedobjs.ObjInfo
-	exportedSymbols map[string]bool
+	exportedSymbols map[string]sharedobjs.DynamicSymbol
 }
 
 // ContainsSymbol returns true if the shared object being loaded contains the given symbol.
@@ -389,10 +389,10 @@ func (so *loadingSharedObj) FilterSymbols(filterSymbols map[string]bool) {
 		return
 	}
 
-	filteredSymbols := make(map[string]bool)
+	filteredSymbols := make(map[string]sharedobjs.DynamicSymbol)
 	for filterSym := range filterSymbols {
-		if so.exportedSymbols[filterSym] {
-			filteredSymbols[filterSym] = true
+		if symbol, ok := so.exportedSymbols[filterSym]; ok {
+			filteredSymbols[filterSym] = symbol
 		}
 	}
 
@@ -405,10 +405,10 @@ func (so *loadingSharedObj) FilterOutSymbols(filterSymbols map[string]bool) {
 		return
 	}
 
-	filteredSymbols := make(map[string]bool)
-	for exSymbol := range so.exportedSymbols {
-		if !filterSymbols[exSymbol] {
-			filteredSymbols[exSymbol] = true
+	filteredSymbols := make(map[string]sharedobjs.DynamicSymbol)
+	for exSymbolName, symbol := range so.exportedSymbols {
+		if !filterSymbols[exSymbolName] {
+			filteredSymbols[exSymbolName] = symbol
 		}
 	}
 

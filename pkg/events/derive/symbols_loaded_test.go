@@ -19,36 +19,36 @@ type testSOInstance struct {
 }
 
 type symbolsLoaderMock struct {
-	cache      map[sharedobjs.ObjInfo]map[string]bool
+	cache      map[sharedobjs.ObjInfo]map[string]sharedobjs.DynamicSymbol
 	shouldFail bool
 }
 
 func initLoaderMock(shouldFail bool) symbolsLoaderMock {
-	return symbolsLoaderMock{cache: make(map[sharedobjs.ObjInfo]map[string]bool), shouldFail: shouldFail}
+	return symbolsLoaderMock{cache: make(map[sharedobjs.ObjInfo]map[string]sharedobjs.DynamicSymbol), shouldFail: shouldFail}
 }
 
-func (loader symbolsLoaderMock) GetDynamicSymbols(info sharedobjs.ObjInfo) (map[string]bool, error) {
+func (loader symbolsLoaderMock) GetDynamicSymbols(info sharedobjs.ObjInfo) (map[string]sharedobjs.DynamicSymbol, error) {
 	if loader.shouldFail {
 		return nil, errors.New("loading error")
 	}
 	return loader.cache[info], nil
 }
 
-func (loader symbolsLoaderMock) GetExportedSymbols(info sharedobjs.ObjInfo) (map[string]bool, error) {
+func (loader symbolsLoaderMock) GetExportedSymbols(info sharedobjs.ObjInfo) (map[string]sharedobjs.DynamicSymbol, error) {
 	if loader.shouldFail {
 		return nil, errors.New("loading error")
 	}
 	return loader.cache[info], nil
 }
 
-func (loader symbolsLoaderMock) GetImportedSymbols(info sharedobjs.ObjInfo) (map[string]bool, error) {
+func (loader symbolsLoaderMock) GetImportedSymbols(info sharedobjs.ObjInfo) (map[string]sharedobjs.DynamicSymbol, error) {
 	return nil, nil
 }
 
 func (loader symbolsLoaderMock) addSOSymbols(info testSOInstance) {
-	symsMap := make(map[string]bool)
+	symsMap := make(map[string]sharedobjs.DynamicSymbol)
 	for _, s := range info.syms {
-		symsMap[s] = true
+		symsMap[s] = sharedobjs.DynamicSymbol{}
 	}
 	loader.cache[info.info] = symsMap
 }

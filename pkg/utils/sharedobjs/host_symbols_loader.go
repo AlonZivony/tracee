@@ -30,22 +30,20 @@ func InitHostSymbolsLoader(cacheSize int) *HostSymbolsLoader {
 
 // GetDynamicSymbols try to get shared objects dynamic symbols from lru, and if fails read needed information
 // from ELF file.
-func (soLoader *HostSymbolsLoader) GetDynamicSymbols(soInfo ObjInfo) (map[string]bool, error) {
-	syms, err := soLoader.loadSOSymbols(soInfo)
+func (soLoader *HostSymbolsLoader) GetDynamicSymbols(soInfo ObjInfo) (map[string]DynamicSymbol, error) {
+	soSymbols, err := soLoader.loadSOSymbols(soInfo)
 	if err != nil {
 		return nil, errfmt.WrapError(err)
 	}
-	dynSyms := copyMap(syms.Imported)
-	for expSym := range syms.Exported {
-		dynSyms[expSym] = true
-	}
-	return dynSyms, nil
+	dynamicSymbols := maps.Clone(soSymbols.Imported)
+	maps.Copy(dynamicSymbols, soSymbols.Exported)
+	return dynamicSymbols, nil
 }
 
 // GetExportedSymbols try to get shared objects exported symbols from lru, and if fails read needed information
 // from ELF file.
 // The returned map is part of a cache, so if the user wants to modify it he should copy it and modify it there.
-func (soLoader *HostSymbolsLoader) GetExportedSymbols(soInfo ObjInfo) (map[string]bool, error) {
+func (soLoader *HostSymbolsLoader) GetExportedSymbols(soInfo ObjInfo) (map[string]DynamicSymbol, error) {
 	syms, err := soLoader.loadSOSymbols(soInfo)
 	if err != nil {
 		return nil, errfmt.WrapError(err)
@@ -56,7 +54,7 @@ func (soLoader *HostSymbolsLoader) GetExportedSymbols(soInfo ObjInfo) (map[strin
 // GetImportedSymbols try to get shared objects imported symbols from lru, and if fails read needed information
 // from ELF file.
 // The returned map is part of a cache, so if the user wants to modify it he should copy it and modify it there.
-func (soLoader *HostSymbolsLoader) GetImportedSymbols(soInfo ObjInfo) (map[string]bool, error) {
+func (soLoader *HostSymbolsLoader) GetImportedSymbols(soInfo ObjInfo) (map[string]DynamicSymbol, error) {
 	syms, err := soLoader.loadSOSymbols(soInfo)
 	if err != nil {
 		return nil, errfmt.WrapError(err)
@@ -133,19 +131,21 @@ func loadSharedObjectDynamicSymbols(path string) (*dynamicSymbols, error) {
 }
 
 func parseDynamicSymbols(dynamicSymbols []elf.Symbol) *dynamicSymbols {
-	objSymbols := NewSOSymbols()
+	objSymbols := newSOSymbols()
 	for _, sym := range dynamicSymbols {
+		parsesSymbol := parseElfSymbol(sym)
 		if sym.Library != "" || sym.Value == 0 {
-			objSymbols.Imported[sym.Name] = true
+			objSymbols.Imported[sym.Name] = parsesSymbol
 		} else {
-			objSymbols.Exported[sym.Name] = true
+			objSymbols.Exported[sym.Name] = parsesSymbol
 		}
 	}
 	return &objSymbols
 }
 
-func copyMap(source map[string]bool) map[string]bool {
-	copiedMap := make(map[string]bool, len(source))
-	maps.Copy(copiedMap, source)
-	return copiedMap
+func parseElfSymbol(symbol elf.Symbol) DynamicSymbol {
+	return DynamicSymbol{
+		name:       symbol.Name,
+		symbolType: elf.ST_TYPE(symbol.Info),
+	}
 }
