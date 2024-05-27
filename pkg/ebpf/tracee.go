@@ -25,6 +25,7 @@ import (
 	"github.com/aquasecurity/tracee/pkg/ebpf/controlplane"
 	"github.com/aquasecurity/tracee/pkg/ebpf/initialization"
 	"github.com/aquasecurity/tracee/pkg/ebpf/probes"
+	"github.com/aquasecurity/tracee/pkg/ebpf/reltime"
 	"github.com/aquasecurity/tracee/pkg/errfmt"
 	"github.com/aquasecurity/tracee/pkg/events"
 	"github.com/aquasecurity/tracee/pkg/events/dependencies"
@@ -122,6 +123,7 @@ type Tracee struct {
 	policyManager *policyManager
 	// The dependencies of events used by Tracee
 	eventsDependencies *dependencies.Manager
+	timeNormalizer     reltime.TimeNormalizer
 	// producer produce events in analyze mode instead of eBPF programs
 	producer producer.EventsProducer
 }
@@ -445,15 +447,6 @@ func (t *Tracee) Init(ctx gocontext.Context) error {
 		}
 	}
 
-	// Initialize Process Tree (if enabled)
-
-	if t.config.ProcTree.Source != proctree.SourceNone {
-		t.processTree, err = proctree.NewProcessTree(ctx, t.config.ProcTree)
-		if err != nil {
-			return errfmt.WrapError(err)
-		}
-	}
-
 	if t.producer == nil {
 		err = t.initBPFProducing(ctx)
 		if err != nil {
@@ -482,6 +475,13 @@ func (t *Tracee) initBPFProducing(ctx gocontext.Context) error {
 		return errfmt.WrapError(err)
 	}
 
+	usedClockID := utils.CLOCK_BOOTTIME
+	// If bpf_ktime_get_boot_ns is not available, eBPF will generate events based on monotonic time.
+	if _, err = t.kernelSymbols.GetSymbolByName("bpf_ktime_get_boot_ns"); err != nil {
+		usedClockID = utils.CLOCK_MONOTONIC
+	}
+	t.timeNormalizer = reltime.CreateTimeNormalizerByConfig(t.config.Output, usedClockID)
+
 	t.validateKallsymsDependencies() // disable events w/ missing ksyms dependencies
 
 	var mntNSProcs map[int]int
@@ -500,6 +500,22 @@ func (t *Tracee) initBPFProducing(ctx gocontext.Context) error {
 		}
 	} else {
 		logger.Debugw("Initializing buckets cache", "error", errfmt.WrapError(err))
+	}
+
+	// Initialize Process Tree (if enabled)
+
+	if t.config.ProcTree.Source != proctree.SourceNone {
+		// As procfs use boot time to calculate process start time, we can use the procfs
+		// only if the times we get from the eBPF programs are based on the boot time (instead of monotonic).
+		proctreeConfig := t.config.ProcTree
+		if usedClockID == utils.CLOCK_MONOTONIC {
+			proctreeConfig.ProcfsInitialization = false
+			proctreeConfig.ProcfsQuerying = false
+		}
+		t.processTree, err = proctree.NewProcessTree(ctx, proctreeConfig)
+		if err != nil {
+			return errfmt.WrapError(err)
+		}
 	}
 
 	// Initialize cgroups filesystems
@@ -606,8 +622,8 @@ func (t *Tracee) initBPFProducing(ctx gocontext.Context) error {
 
 	// Initialize times
 
-	t.startTime = uint64(utils.GetStartTimeNS())
-	t.bootTime = uint64(utils.GetBootTimeNS())
+	t.startTime = uint64(utils.GetStartTimeNS(int32(usedClockID)))
+	t.bootTime = uint64(utils.GetBootTimeNS(int32(usedClockID)))
 
 	return nil
 }
@@ -1194,6 +1210,7 @@ func (t *Tracee) initBPF() error {
 		t.containers,
 		t.config.NoContainersEnrich,
 		t.processTree,
+		t.timeNormalizer,
 	)
 	if err != nil {
 		return errfmt.WrapError(err)
