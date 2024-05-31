@@ -11,8 +11,6 @@ import (
 	"sync/atomic"
 	"unsafe"
 
-	"github.com/aquasecurity/tracee/pkg/producer"
-
 	"kernel.org/pub/linux/libs/security/libcap/cap"
 
 	bpf "github.com/aquasecurity/libbpfgo"
@@ -40,6 +38,7 @@ import (
 	"github.com/aquasecurity/tracee/pkg/pcaps"
 	"github.com/aquasecurity/tracee/pkg/policy"
 	"github.com/aquasecurity/tracee/pkg/proctree"
+	"github.com/aquasecurity/tracee/pkg/producer"
 	"github.com/aquasecurity/tracee/pkg/signatures/engine"
 	"github.com/aquasecurity/tracee/pkg/streams"
 	"github.com/aquasecurity/tracee/pkg/utils"
