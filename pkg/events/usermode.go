@@ -26,7 +26,6 @@ import (
 	"github.com/aquasecurity/tracee/pkg/containers"
 	"github.com/aquasecurity/tracee/pkg/containers/runtime"
 	"github.com/aquasecurity/tracee/pkg/logger"
-	"github.com/aquasecurity/tracee/pkg/utils"
 	"github.com/aquasecurity/tracee/types/trace"
 )
 
@@ -39,13 +38,12 @@ func InitNamespacesEvent() trace.Event {
 	initNamespacesArgs := getInitNamespaceArguments()
 
 	initNamespacesEvent := trace.Event{
-		Timestamp:       int(time.Now().UnixNano()),
-		ThreadStartTime: int(utils.GetBootTimeNS()),
-		ProcessName:     "tracee-ebpf",
-		EventID:         int(InitNamespaces),
-		EventName:       initNamespacesDef.GetName(),
-		ArgsNum:         len(initNamespacesArgs),
-		Args:            initNamespacesArgs,
+		Timestamp:   int(time.Now().UnixNano()),
+		ProcessName: "tracee-ebpf",
+		EventID:     int(InitNamespaces),
+		EventName:   initNamespacesDef.GetName(),
+		ArgsNum:     len(initNamespacesArgs),
+		Args:        initNamespacesArgs,
 	}
 
 	return initNamespacesEvent
