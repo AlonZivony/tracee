@@ -60,3 +60,19 @@ func (rn *AbsoluteTimeNormalizer) NormalizeTime(timeNs int) int {
 func (rn *AbsoluteTimeNormalizer) GetOriginalTime(timeNs int) int {
 	return timeNs - rn.bootTime
 }
+
+// MockTimeNormalizer is a time normalizer that doesn't change the time
+type MockTimeNormalizer struct {
+	bootTime int
+}
+
+func NewMockTimeNormalizer() *MockTimeNormalizer {
+	return &MockTimeNormalizer{}
+}
+func (mtn *MockTimeNormalizer) NormalizeTime(timeNs int) int {
+	return timeNs
+}
+
+func (mtn *MockTimeNormalizer) GetOriginalTime(timeNs int) int {
+	return timeNs
+}

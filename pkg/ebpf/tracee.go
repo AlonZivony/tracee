@@ -452,6 +452,17 @@ func (t *Tracee) Init(ctx gocontext.Context) error {
 		if err != nil {
 			return err
 		}
+	} else {
+		t.timeNormalizer = reltime.NewMockTimeNormalizer()
+	}
+
+	if t.config.ProcTree.Source != proctree.SourceNone {
+		// As procfs use boot time to calculate process start time, we can use the procfs
+		// only if the times we get from the eBPF programs are based on the boot time (instead of monotonic).
+		t.processTree, err = proctree.NewProcessTree(ctx, t.config.ProcTree)
+		if err != nil {
+			return errfmt.WrapError(err)
+		}
 	}
 
 	return nil
@@ -507,14 +518,9 @@ func (t *Tracee) initBPFProducing(ctx gocontext.Context) error {
 	if t.config.ProcTree.Source != proctree.SourceNone {
 		// As procfs use boot time to calculate process start time, we can use the procfs
 		// only if the times we get from the eBPF programs are based on the boot time (instead of monotonic).
-		proctreeConfig := t.config.ProcTree
 		if usedClockID == utils.CLOCK_MONOTONIC {
-			proctreeConfig.ProcfsInitialization = false
-			proctreeConfig.ProcfsQuerying = false
-		}
-		t.processTree, err = proctree.NewProcessTree(ctx, proctreeConfig)
-		if err != nil {
-			return errfmt.WrapError(err)
+			t.config.ProcTree.ProcfsInitialization = false
+			t.config.ProcTree.ProcfsQuerying = false
 		}
 	}
 

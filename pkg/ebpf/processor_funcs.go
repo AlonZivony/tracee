@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"github.com/aquasecurity/tracee/pkg/ebpf/reltime"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -359,15 +360,48 @@ func (t *Tracee) normalizeEventCtxTimes(event *trace.Event) error {
 	return nil
 }
 
+func normalizeTimeOfArg(timeNormalizer reltime.TimeNormalizer, event *trace.Event, argName string) error {
+	arg := events.GetArg(event, argName)
+	if arg != nil {
+		var timeToNormalize uint64
+		switch typedArg := arg.Value.(type) {
+		case uint64:
+			timeToNormalize = typedArg
+		case int:
+			timeToNormalize = uint64(typedArg)
+		default:
+			return fmt.Errorf("time type is not supported - %T", arg.Value)
+		}
+		arg.Value = uint64(timeNormalizer.NormalizeTime(int(timeToNormalize)))
+	}
+	return nil
+}
+
+func (t *Tracee) normalizeSchedProcesForkTimes(event *trace.Event) error {
+	err := normalizeTimeOfArg(t.timeNormalizer, event, "parent_start_time")
+	if err != nil {
+		return err
+	}
+	err = normalizeTimeOfArg(t.timeNormalizer, event, "start_time")
+	if err != nil {
+		return err
+	}
+	err = normalizeTimeOfArg(t.timeNormalizer, event, "up_parent_start_time")
+	if err != nil {
+		return err
+	}
+	err = normalizeTimeOfArg(t.timeNormalizer, event, "leader_start_time")
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
 // getOrigEvtTimestamp returns the original timestamp of the event.
 // To be used only when the event timestamp was normalized via normalizeEventCtxTimes.
 func (t *Tracee) getOrigEvtTimestamp(event *trace.Event) int {
 	return t.timeNormalizer.GetOriginalTime(event.Timestamp)
-}
-
-// processSchedProcessFork processes a sched_process_fork event by normalizing the start time.
-func (t *Tracee) processSchedProcessFork(event *trace.Event) error {
-	return t.normalizeEventArgTime(event, "start_time")
 }
 
 // normalizeEventArgTime normalizes the event arg time to be relative to tracee start time or

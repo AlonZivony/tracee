@@ -32,5 +32,5 @@ func New(cfg *config.ProducerConfig) (EventsProducer, error) {
 	default:
 		return nil, fmt.Errorf("unsupported producer kind - %s", cfg.Kind)
 	}
-	return InitTimeFixerProducer(inputProducer), nil
+	return inputProducer, nil
 }

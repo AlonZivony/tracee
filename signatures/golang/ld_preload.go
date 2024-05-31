@@ -159,7 +159,7 @@ func (sig *LdPreload) getLineage(eventObj *trace.Event) (datasource.ProcessLinea
 		},
 	)
 	if err != nil {
-		return nil, fmt.Errorf("could not find lineage")
+		return nil, fmt.Errorf("could not find lineage for %d", eventObj.ProcessEntityId)
 	}
 	lineageInfo, ok := lineageQueryAnswer["process_lineage"].(datasource.ProcessLineage)
 	if !ok {
