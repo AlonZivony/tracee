@@ -680,7 +680,7 @@ func (t *Tracee) produceEvents(ctx context.Context) (
 					}
 					logger.Fatalw("Error with events producer", "err", err)
 				}
-				e.MatchedPoliciesKernel = 0xFFFFFFFF
+				e.MatchedPoliciesKernel = policy.PolicyAll
 				policiesVersion := uint16(1) // Use default policies min value
 				currentPolicies, err := policy.Snapshots().GetLast()
 				if err != nil {
