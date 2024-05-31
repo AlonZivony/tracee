@@ -4,6 +4,7 @@ import (
 	"github.com/aquasecurity/tracee/pkg/errfmt"
 	"github.com/aquasecurity/tracee/pkg/logger"
 	"github.com/aquasecurity/tracee/pkg/utils"
+	"path/filepath"
 )
 
 //
@@ -206,6 +207,9 @@ func (pt *ProcessTree) FeedFromExec(feed ExecFeed) error {
 		// TODO: handle execve() from a thread
 		logger.Debugw("exec event received for a thread", "taskHash", feed.TaskHash)
 		return nil
+	}
+	if filepath.Base(feed.PathName) == "ls" {
+		logger.Infow("Feed exec", "hash", feed.TaskHash, "exec time", feed.TimeStamp, "cmd path", feed.CmdPath)
 	}
 
 	// Update the process: it is very likely that the process already exists because of the fork
