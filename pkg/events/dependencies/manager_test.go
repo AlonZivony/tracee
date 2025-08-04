@@ -1122,6 +1122,70 @@ func TestManager_FailureVsCancellation(t *testing.T) {
 		_, err = m.GetEvent(events.ID(2))
 		assert.ErrorIs(t, err, ErrNodeNotFound)
 	})
+
+	t.Run("Direct event cancellation removes event instead of using fallbacks", func(t *testing.T) {
+		deps := map[events.ID]events.Dependencies{
+			events.ID(1): events.NewDependenciesWithFallbacks(
+				[]events.ID{events.ID(2)}, // Primary dependency
+				nil,
+				nil,
+				nil,
+				events.Capabilities{},
+				[]events.Dependencies{
+					// Valid fallback - empty dependencies (should work)
+					{},
+				},
+			),
+			events.ID(2): {},
+		}
+
+		m := NewDependenciesManager(getTestDependenciesFunc(deps))
+
+		var eventsRemoved []events.ID
+		m.SubscribeRemove(EventNodeType, func(node interface{}) []Action {
+			eventNode, ok := node.(*EventNode)
+			if !ok {
+				return nil
+			}
+			eventsRemoved = append(eventsRemoved, eventNode.GetID())
+			return nil
+		})
+
+		// Add watcher that directly cancels event 1 (not its dependencies)
+		m.SubscribeAdd(
+			EventNodeType,
+			func(node interface{}) []Action {
+				newEventNode, ok := node.(*EventNode)
+				if !ok {
+					return nil
+				}
+				if newEventNode.GetID() == events.ID(1) {
+					return []Action{NewCancelNodeAddAction(errors.New("event 1 directly cancelled"))}
+				}
+				return nil
+			},
+		)
+
+		// Try to add event 1 - should fail because the event itself is cancelled
+		// Even though it has valid fallback dependencies, cancellation should cause immediate removal
+		_, err := m.SelectEvent(events.ID(1))
+		require.Error(t, err)
+
+		// Should be a cancellation error since this is the directly cancelled event
+		var cancelErr *ErrNodeAddCancelled
+		assert.True(t, errors.As(err, &cancelErr))
+
+		// Verify event 1 was removed (should be in removal list)
+		assert.Contains(t, eventsRemoved, events.ID(1))
+
+		// Verify event 1 is not in the tree
+		_, err = m.GetEvent(events.ID(1))
+		assert.ErrorIs(t, err, ErrNodeNotFound)
+
+		// Verify event 2 was also not added (since event 1 was cancelled before dependencies were built)
+		_, err = m.GetEvent(events.ID(2))
+		assert.ErrorIs(t, err, ErrNodeNotFound)
+	})
 }
 
 func TestManager_FailEvent_ProbeFailures(t *testing.T) {
