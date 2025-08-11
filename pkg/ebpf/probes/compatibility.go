@@ -3,6 +3,8 @@ package probes
 import (
 	"strings"
 
+	bpf "github.com/aquasecurity/libbpfgo"
+	"github.com/aquasecurity/tracee/pkg/capabilities"
 	"github.com/aquasecurity/tracee/pkg/utils/environment"
 )
 
@@ -88,4 +90,43 @@ func (k *KernelVersionRequirement) IsCompatible(osInfo OSInfoProvider) (bool, er
 	}
 
 	return true, nil
+}
+
+// BPFHelperRequirement is a requirement that checks if a specific BPF helper function is supported.
+type BPFHelperRequirement struct {
+	progType bpf.BPFProgType
+	funcID   bpf.BPFFunc
+}
+
+// NewBPFHelperRequirement creates a new BPFHelperRequirement.
+func NewBPFHelperRequirement(progType bpf.BPFProgType, funcID bpf.BPFFunc) *BPFHelperRequirement {
+	return &BPFHelperRequirement{
+		progType: progType,
+		funcID:   funcID,
+	}
+}
+
+// IsCompatible checks if the BPF helper function is supported.
+func (b *BPFHelperRequirement) IsCompatible(osInfo OSInfoProvider) (bool, error) {
+	supported := false
+
+	err := capabilities.GetInstance().EBPF(
+		func() error {
+			var err error
+			// Since this code is running with sufficient capabilities, we can safely trust the result of `BPFHelperIsSupported`.
+			// If the helper is reported as supported (`supported == true`), it is assumed to be reliable for use.
+			// If `supported == false`, it indicates that the helper is not available.
+			// The `innerErr` provides information about errors that occurred during the check, regardless of whether `supported`
+			// is true or false.
+			// For a full explanation of the caveats and behavior, refer to:
+			// https://github.com/aquasecurity/libbpfgo/blob/eb576c71ece75930a693b8b0687c5d052a5dbd56/libbpfgo.go#L99-L119
+			supported, err = bpf.BPFHelperIsSupported(b.progType, b.funcID)
+
+			if err != nil {
+				return err
+			}
+
+			return nil
+		})
+	return supported, err
 }
