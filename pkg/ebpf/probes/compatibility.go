@@ -7,16 +7,22 @@ import (
 	"slices"
 	"strings"
 
+	bpf "github.com/aquasecurity/libbpfgo"
+
 	"github.com/aquasecurity/tracee/pkg/utils"
 	"github.com/aquasecurity/tracee/pkg/utils/environment"
 )
+
+type KernelSymbolProvider interface {
+	GetKernelSymbol(symbol string) ([]*environment.KernelSymbol, error)
+}
 
 // EnvironmentProvider defines the interface for OS and other environment information needed by probe compatibility checks.
 // It is used to mock the environment in tests.
 type EnvironmentProvider interface {
 	GetOSReleaseID() environment.OSReleaseID
 	CompareOSBaseKernelRelease(version string) (environment.KernelVersionComparison, error)
-	GetKernelSymbol(symbol string) ([]*environment.KernelSymbol, error)
+	KernelSymbolProvider
 }
 
 // ProbeCompatibility stores the requirements for a probe to be used.
@@ -101,48 +107,46 @@ func (k *KernelVersionRequirement) IsCompatible(envProvider EnvironmentProvider)
 	return true, nil
 }
 
-type MapType string
+type MapType = bpf.MapType
 
 const (
-	HashMapType                MapType = "BPF_MAP_TYPE_HASH"
-	ArrayMapType               MapType = "BPF_MAP_TYPE_ARRAY"
-	ProgArrayMapType           MapType = "BPF_MAP_TYPE_PROG_ARRAY"
-	PerfEventArrayMapType      MapType = "BPF_MAP_TYPE_PERF_EVENT_ARRAY"
-	PercpuHashMapType          MapType = "BPF_MAP_TYPE_PERCPU_HASH"
-	PercpuArrayMapType         MapType = "BPF_MAP_TYPE_PERCPU_ARRAY"
-	StackTraceMapType          MapType = "BPF_MAP_TYPE_STACK_TRACE"
-	CgroupArrayMapType         MapType = "BPF_MAP_TYPE_CGROUP_ARRAY"
-	LruHashMapType             MapType = "BPF_MAP_TYPE_LRU_HASH"
-	LruPercpuHashMapType       MapType = "BPF_MAP_TYPE_LRU_PERCPU_HASH"
-	LpmTrieMapType             MapType = "BPF_MAP_TYPE_LPM_TRIE"
-	ArrayOfMapsMapType         MapType = "BPF_MAP_TYPE_ARRAY_OF_MAPS"
-	HashOfMapsMapType          MapType = "BPF_MAP_TYPE_HASH_OF_MAPS"
-	DevmapMapType              MapType = "BPF_MAP_TYPE_DEVMAP"
-	SockmapMapType             MapType = "BPF_MAP_TYPE_SOCKMAP"
-	CpumapMapType              MapType = "BPF_MAP_TYPE_CPUMAP"
-	XskmapMapType              MapType = "BPF_MAP_TYPE_XSKMAP"
-	SockhashMapType            MapType = "BPF_MAP_TYPE_SOCKHASH"
-	CgroupStorageMapType       MapType = "BPF_MAP_TYPE_CGROUP_STORAGE"
-	ReuseportSockarrayMapType  MapType = "BPF_MAP_TYPE_REUSEPORT_SOCKARRAY"
-	PercpuCgroupStorageMapType MapType = "BPF_MAP_TYPE_PERCPU_CGROUP_STORAGE"
-	QueueMapType               MapType = "BPF_MAP_TYPE_QUEUE"
-	StackMapType               MapType = "BPF_MAP_TYPE_STACK"
-	SkStorageMapType           MapType = "BPF_MAP_TYPE_SK_STORAGE"
-	DevmapHashMapType          MapType = "BPF_MAP_TYPE_DEVMAP_HASH"
-	StructOpsMapType           MapType = "BPF_MAP_TYPE_STRUCT_OPS"
-	RingbufMapType             MapType = "BPF_MAP_TYPE_RINGBUF"
-	InodeStorageMapType        MapType = "BPF_MAP_TYPE_INODE_STORAGE"
-	TaskStorageMapType         MapType = "BPF_MAP_TYPE_TASK_STORAGE"
-	BloomFilterMapType         MapType = "BPF_MAP_TYPE_BLOOM_FILTER"
-	UserRingbufMapType         MapType = "BPF_MAP_TYPE_USER_RINGBUF"
-	CgrpStorageMapType         MapType = "BPF_MAP_TYPE_CGRP_STORAGE"
-	ArenaMapType               MapType = "BPF_MAP_TYPE_ARENA"
+	HashMapType                MapType = bpf.MapTypeHash
+	ArrayMapType               MapType = bpf.MapTypeArray
+	ProgArrayMapType           MapType = bpf.MapTypeProgArray
+	PerfEventArrayMapType      MapType = bpf.MapTypePerfEventArray
+	PercpuHashMapType          MapType = bpf.MapTypePerCPUHash
+	PercpuArrayMapType         MapType = bpf.MapTypePerCPUArray
+	StackTraceMapType          MapType = bpf.MapTypeStackTrace
+	CgroupArrayMapType         MapType = bpf.MapTypeCgroupArray
+	LruHashMapType             MapType = bpf.MapTypeLRUHash
+	LruPercpuHashMapType       MapType = bpf.MapTypeLRUPerCPUHash
+	LpmTrieMapType             MapType = bpf.MapTypeLPMTrie
+	ArrayOfMapsMapType         MapType = bpf.MapTypeArrayOfMaps
+	HashOfMapsMapType          MapType = bpf.MapTypeHashOfMaps
+	DevmapMapType              MapType = bpf.MapTypeDevMap
+	SockmapMapType             MapType = bpf.MapTypeSockMap
+	CpumapMapType              MapType = bpf.MapTypeCPUMap
+	XskmapMapType              MapType = bpf.MapTypeXSKMap
+	SockhashMapType            MapType = bpf.MapTypeSockHash
+	CgroupStorageMapType       MapType = bpf.MapTypeCgroupStorage
+	ReuseportSockarrayMapType  MapType = bpf.MapTypeReusePortSockArray
+	PercpuCgroupStorageMapType MapType = bpf.MapTypePerCPUCgroupStorage
+	QueueMapType               MapType = bpf.MapTypeQueue
+	StackMapType               MapType = bpf.MapTypeStack
+	SkStorageMapType           MapType = bpf.MapTypeSKStorage
+	DevmapHashMapType          MapType = bpf.MapTypeDevmapHash
+	StructOpsMapType           MapType = bpf.MapTypeStructOps
+	RingbufMapType             MapType = bpf.MapTypeRingbuf
+	InodeStorageMapType        MapType = bpf.MapTypeInodeStorage
+	TaskStorageMapType         MapType = bpf.MapTypeTaskStorage
+	BloomFilterMapType         MapType = bpf.MapTypeBloomFilter
+	UserRingbufMapType         MapType = bpf.MapTypeUserRingbuf
+	CgrpStorageMapType         MapType = bpf.MapTypeCgrpStorage
+	ArenaMapType               MapType = bpf.MapTypeArena
 )
 
-// In the Linux kernel, each BPF map type is associated with a corresponding map_ops structure that implements its operations.
-// These map_ops structures must be exported and present in the kernel symbol table, allowing the BPF_MAP_TYPE macro to link them to their respective map types.
-// The following map associates each BPF map type with the name of its map_ops structure.
-// By checking for the presence of a map_ops symbol in the kernel symbol table, we can determine if a given map type is supported by the kernel.
+// mapTypeToMapOperations maps libbpfgo MapType directly to their corresponding
+// kernel map_ops symbols for kernel symbol table lookups.
 var mapTypeToMapOperations = map[MapType]string{
 	HashMapType:                "htab_map_ops",
 	ArrayMapType:               "array_map_ops",
@@ -196,13 +200,19 @@ func NewBPFMapTypeRequirement(mapType MapType) *BPFMapTypeRequirement {
 }
 
 func (m *BPFMapTypeRequirement) IsCompatible(envProvider EnvironmentProvider) (bool, error) {
-	mapOperationSymbol, ok := mapTypeToMapOperations[m.mapType]
+	return IsBpfMapTypeSupported(m.mapType, envProvider)
+}
+
+// In the Linux kernel, each BPF map type is associated with a corresponding map_ops structure that implements its operations.
+// These map_ops structures must be exported and present in the kernel symbol table, allowing the BPF_MAP_TYPE macro to link them to their respective map types.
+// By checking for the presence of a map_ops symbol in the kernel symbol table, we can determine if a given map type is supported by the kernel.
+func IsBpfMapTypeSupported(mapType MapType, ksymsProvider KernelSymbolProvider) (bool, error) {
+	mapOperationSymbol, ok := mapTypeToMapOperations[mapType]
 	if !ok {
-		return false, fmt.Errorf("map type %s not found", m.mapType)
+		return false, fmt.Errorf("map type %d not supported", uint32(mapType))
 	}
 
-	// Get kernel symbols from the environment provider
-	mapOperationSymbols, err := envProvider.GetKernelSymbol(mapOperationSymbol)
+	mapOperationSymbols, err := ksymsProvider.GetKernelSymbol(mapOperationSymbol)
 	if err != nil {
 		if errors.Is(err, utils.ErrSymbolNotFound) {
 			return false, nil

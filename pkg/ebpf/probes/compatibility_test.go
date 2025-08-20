@@ -459,7 +459,7 @@ func TestBPFMapTypeRequirement(t *testing.T) {
 		},
 		{
 			name:           "invalid map type",
-			mapType:        MapType("invalid"),
+			mapType:        MapType(999), // Use an invalid numeric value instead
 			hasSymbol:      false,
 			expectedResult: false,
 			expectedError:  true,

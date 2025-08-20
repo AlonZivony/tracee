@@ -1107,6 +1107,19 @@ func (t *Tracee) setProgramsAutoload() {
 		})
 }
 
+func (t *Tracee) setMapsAutocreate() {
+	envProvider := NewTraceeEnvironmentProvider(t.config.OSInfo, t.getKernelSymbols())
+	iterator := t.bpfModule.Iterator()
+	for bpfMap := iterator.NextMap(); bpfMap != nil; bpfMap = iterator.NextMap() {
+		if supported, err := probes.IsBpfMapTypeSupported(bpfMap.Type(), envProvider); err != nil {
+			logger.Warnw("Failed to check if map type is supported", "error", err)
+		} else if !supported {
+			logger.Infow("Map type is not supported, skipping autocreate", "map_type", bpfMap.Type())
+			bpfMap.SetAutocreate(false)
+		}
+	}
+}
+
 func (t *Tracee) populateBPFMaps() error {
 	// Prepare 32bit to 64bit syscall number mapping
 	sys32to64BPFMap, err := t.bpfModule.GetMap("sys_32_to_64_map") // u32, u32
@@ -1444,6 +1457,7 @@ func (t *Tracee) initBPF() error {
 	// Load the eBPF object into kernel
 
 	t.setProgramsAutoload()
+	t.setMapsAutocreate()
 
 	err = t.bpfModule.BPFLoadObject()
 	if err != nil {
