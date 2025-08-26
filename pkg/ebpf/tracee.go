@@ -176,7 +176,7 @@ func New(cfg config.Config) (*Tracee, error) {
 	// Initialize Dependencies Manager
 
 	depsManager := dependencies.NewDependenciesManager(
-		func(id events.ID) events.Dependencies {
+		func(id events.ID) events.DependencyStrategy {
 			return events.Core.GetDefinitionByID(id).GetDependencies()
 		})
 
@@ -836,12 +836,12 @@ func (t *Tracee) initKsymTableRequiredSyms() error {
 	// 2. specific cases (hooked_seq_ops, hooked_symbols, print_mem_dump)
 	for _, id := range t.policyManager.EventsSelected() {
 		if !events.Core.IsDefined(id) {
-			return errfmt.Errorf("event %d is not defined", id)
+			return errfmt.Errorf("event %s is not defined", events.Core.GetDefinitionByID(id).GetName())
 		}
 
 		depsNode, err := t.eventsDependencies.GetEvent(id)
 		if err != nil {
-			logger.Warnw("failed to extract required ksymbols from event", "event_id", id, "error", err)
+			logger.Warnw("failed to extract required ksymbols from event", "event", events.Core.GetDefinitionByID(id).GetName(), "error", err)
 			continue
 		}
 		// Add directly dependant symbols
@@ -975,7 +975,7 @@ func (t *Tracee) validateKallsymsDependencies() {
 	validateEvent := func(eventId events.ID) bool {
 		depsNode, err := t.eventsDependencies.GetEvent(eventId)
 		if err != nil {
-			logger.Debugw("Failed to get dependencies for event", "id", eventId, "error", err)
+			logger.Debugw("Failed to get dependencies for event", "event", events.Core.GetDefinitionByID(eventId).GetName(), "error", err)
 			return false
 		}
 		return validateNode(depsNode)
@@ -1730,7 +1730,7 @@ func (t *Tracee) getSelfLoadedPrograms(kprobesOnly bool) map[string]int {
 			continue
 		}
 
-		for _, depProbes := range definition.GetDependencies().GetProbes() {
+		for _, depProbes := range definition.GetDependencies().GetPrimaryDependencies().GetProbes() {
 			currProbe := t.defaultProbes.GetProbeByHandle(depProbes.GetHandle())
 			name := ""
 			switch p := currProbe.(type) {

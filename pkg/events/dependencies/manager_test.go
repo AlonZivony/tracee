@@ -12,8 +12,8 @@ import (
 	"github.com/aquasecurity/tracee/pkg/events"
 )
 
-func getTestDependenciesFunc(deps map[events.ID]events.Dependencies) func(events.ID) events.Dependencies {
-	return func(id events.ID) events.Dependencies {
+func getTestDependenciesFunc(deps map[events.ID]events.DependencyStrategy) func(events.ID) events.DependencyStrategy {
+	return func(id events.ID) events.DependencyStrategy {
 		return deps[id]
 	}
 }
@@ -24,54 +24,57 @@ func TestManager_AddEvent(t *testing.T) {
 	testCases := []struct {
 		name       string
 		eventToAdd events.ID
-		deps       map[events.ID]events.Dependencies
+		deps       map[events.ID]events.DependencyStrategy
 	}{
 		{
 			name:       "empty dependency",
 			eventToAdd: events.ID(1),
-			deps: map[events.ID]events.Dependencies{
+			deps: map[events.ID]events.DependencyStrategy{
 				events.ID(1): {},
 			},
 		},
 		{
 			name:       "dependency event",
 			eventToAdd: events.ID(1),
-			deps: map[events.ID]events.Dependencies{
-				events.ID(1): events.NewDependencies(
-					[]events.ID{events.ID(2)},
-					nil,
-					[]events.Probe{
-						events.NewProbe(probes.SchedProcessExec, true),
-					},
-					nil,
-					events.Capabilities{},
-				),
+			deps: map[events.ID]events.DependencyStrategy{
+				events.ID(1): events.NewDependencyStrategy(
+					events.NewDependencies(
+						[]events.ID{events.ID(2)},
+						nil,
+						[]events.Probe{
+							events.NewProbe(probes.SchedProcessExec, true),
+						},
+						nil,
+						events.Capabilities{},
+					)),
 				events.ID(2): {},
 			},
 		},
 		{
 			name:       "multi dependency event",
 			eventToAdd: events.ID(1),
-			deps: map[events.ID]events.Dependencies{
-				events.ID(1): events.NewDependencies(
-					[]events.ID{events.ID(2)},
-					nil,
-					[]events.Probe{
-						events.NewProbe(probes.SchedProcessExec, true),
-						events.NewProbe(probes.SchedProcessExit, true),
-					},
-					nil,
-					events.Capabilities{},
-				),
-				events.ID(2): events.NewDependencies(
-					[]events.ID{events.ID(3)},
-					nil,
-					[]events.Probe{
-						events.NewProbe(probes.SchedProcessExec, true),
-					},
-					nil,
-					events.Capabilities{},
-				),
+			deps: map[events.ID]events.DependencyStrategy{
+				events.ID(1): events.NewDependencyStrategy(
+					events.NewDependencies(
+						[]events.ID{events.ID(2)},
+						nil,
+						[]events.Probe{
+							events.NewProbe(probes.SchedProcessExec, true),
+							events.NewProbe(probes.SchedProcessExit, true),
+						},
+						nil,
+						events.Capabilities{},
+					)),
+				events.ID(2): events.NewDependencyStrategy(
+					events.NewDependencies(
+						[]events.ID{events.ID(3)},
+						nil,
+						[]events.Probe{
+							events.NewProbe(probes.SchedProcessExec, true),
+						},
+						nil,
+						events.Capabilities{},
+					)),
 				events.ID(3): {},
 			},
 		},
@@ -108,7 +111,7 @@ func TestManager_AddEvent(t *testing.T) {
 						evtNode, err := m.GetEvent(id)
 						assert.NoError(t, err)
 						dep := evtNode.GetDependencies()
-						assert.ElementsMatch(t, expDep.GetIDs(), dep.GetIDs())
+						assert.ElementsMatch(t, expDep.GetPrimaryDependencies().GetIDs(), dep.GetIDs())
 
 						for _, probe := range dep.GetProbes() {
 							depProbes[probe.GetHandle()] = append(
@@ -215,13 +218,13 @@ func TestManager_RemoveEvent(t *testing.T) {
 		name                  string
 		preAddedEvents        []events.ID
 		eventToAdd            events.ID
-		deps                  map[events.ID]events.Dependencies
+		deps                  map[events.ID]events.DependencyStrategy
 		expectedRemovedEvents []events.ID
 	}{
 		{
 			name:       "empty dependency",
 			eventToAdd: events.ID(1),
-			deps: map[events.ID]events.Dependencies{
+			deps: map[events.ID]events.DependencyStrategy{
 				events.ID(1): {},
 			},
 			expectedRemovedEvents: []events.ID{events.ID(1)},
@@ -229,16 +232,17 @@ func TestManager_RemoveEvent(t *testing.T) {
 		{
 			name:       "dependency event",
 			eventToAdd: events.ID(1),
-			deps: map[events.ID]events.Dependencies{
-				events.ID(1): events.NewDependencies(
-					[]events.ID{events.ID(2)},
-					nil,
-					[]events.Probe{
-						events.NewProbe(probes.SchedProcessExec, true),
-					},
-					nil,
-					events.Capabilities{},
-				),
+			deps: map[events.ID]events.DependencyStrategy{
+				events.ID(1): events.NewDependencyStrategy(
+					events.NewDependencies(
+						[]events.ID{events.ID(2)},
+						nil,
+						[]events.Probe{
+							events.NewProbe(probes.SchedProcessExec, true),
+						},
+						nil,
+						events.Capabilities{},
+					)),
 				events.ID(2): {},
 			},
 			expectedRemovedEvents: []events.ID{events.ID(1), events.ID(2)},
@@ -246,26 +250,28 @@ func TestManager_RemoveEvent(t *testing.T) {
 		{
 			name:       "multi dependency event",
 			eventToAdd: events.ID(1),
-			deps: map[events.ID]events.Dependencies{
-				events.ID(1): events.NewDependencies(
-					[]events.ID{events.ID(2)},
-					nil,
-					[]events.Probe{
-						events.NewProbe(probes.SchedProcessExec, true),
-						events.NewProbe(probes.SchedProcessExit, true),
-					},
-					nil,
-					events.Capabilities{},
-				),
-				events.ID(2): events.NewDependencies(
-					[]events.ID{events.ID(3)},
-					nil,
-					[]events.Probe{
-						events.NewProbe(probes.SchedProcessExec, true),
-					},
-					nil,
-					events.Capabilities{},
-				),
+			deps: map[events.ID]events.DependencyStrategy{
+				events.ID(1): events.NewDependencyStrategy(
+					events.NewDependencies(
+						[]events.ID{events.ID(2)},
+						nil,
+						[]events.Probe{
+							events.NewProbe(probes.SchedProcessExec, true),
+							events.NewProbe(probes.SchedProcessExit, true),
+						},
+						nil,
+						events.Capabilities{},
+					)),
+				events.ID(2): events.NewDependencyStrategy(
+					events.NewDependencies(
+						[]events.ID{events.ID(3)},
+						nil,
+						[]events.Probe{
+							events.NewProbe(probes.SchedProcessExec, true),
+						},
+						nil,
+						events.Capabilities{},
+					)),
 				events.ID(3): {},
 			},
 			expectedRemovedEvents: []events.ID{events.ID(1), events.ID(2), events.ID(3)},
@@ -274,36 +280,39 @@ func TestManager_RemoveEvent(t *testing.T) {
 			name:           "multi dependency event but is dependency",
 			eventToAdd:     events.ID(1),
 			preAddedEvents: []events.ID{events.ID(4)},
-			deps: map[events.ID]events.Dependencies{
-				events.ID(4): events.NewDependencies(
-					[]events.ID{events.ID(1)},
-					nil,
-					[]events.Probe{
-						events.NewProbe(probes.SchedProcessExec, true),
-						events.NewProbe(probes.SchedProcessFork, true),
-					},
-					nil,
-					events.Capabilities{},
-				),
-				events.ID(1): events.NewDependencies(
-					[]events.ID{events.ID(2)},
-					nil,
-					[]events.Probe{
-						events.NewProbe(probes.SchedProcessExec, true),
-						events.NewProbe(probes.SchedProcessExit, true),
-					},
-					nil,
-					events.Capabilities{},
-				),
-				events.ID(2): events.NewDependencies(
-					[]events.ID{events.ID(3)},
-					nil,
-					[]events.Probe{
-						events.NewProbe(probes.SchedProcessExec, true),
-					},
-					nil,
-					events.Capabilities{},
-				),
+			deps: map[events.ID]events.DependencyStrategy{
+				events.ID(4): events.NewDependencyStrategy(
+					events.NewDependencies(
+						[]events.ID{events.ID(1)},
+						nil,
+						[]events.Probe{
+							events.NewProbe(probes.SchedProcessExec, true),
+							events.NewProbe(probes.SchedProcessFork, true),
+						},
+						nil,
+						events.Capabilities{},
+					)),
+				events.ID(1): events.NewDependencyStrategy(
+					events.NewDependencies(
+						[]events.ID{events.ID(2)},
+						nil,
+						[]events.Probe{
+							events.NewProbe(probes.SchedProcessExec, true),
+							events.NewProbe(probes.SchedProcessExit, true),
+						},
+						nil,
+						events.Capabilities{},
+					)),
+				events.ID(2): events.NewDependencyStrategy(
+					events.NewDependencies(
+						[]events.ID{events.ID(3)},
+						nil,
+						[]events.Probe{
+							events.NewProbe(probes.SchedProcessExec, true),
+						},
+						nil,
+						events.Capabilities{},
+					)),
 				events.ID(3): {},
 			},
 			expectedRemovedEvents: []events.ID{events.ID(1), events.ID(2), events.ID(3), events.ID(4)},
@@ -312,31 +321,34 @@ func TestManager_RemoveEvent(t *testing.T) {
 			name:           "multi dependency event that share dependency",
 			eventToAdd:     events.ID(1),
 			preAddedEvents: []events.ID{events.ID(4)},
-			deps: map[events.ID]events.Dependencies{
-				events.ID(4): events.NewDependencies(
-					[]events.ID{events.ID(3)},
-					nil,
-					nil,
-					nil,
-					events.Capabilities{},
-				),
-				events.ID(1): events.NewDependencies(
-					[]events.ID{events.ID(2)},
-					nil,
-					[]events.Probe{
-						events.NewProbe(probes.SchedProcessExec, true),
-						events.NewProbe(probes.SchedProcessExit, true),
-					},
-					nil,
-					events.Capabilities{},
-				),
-				events.ID(2): events.NewDependencies(
-					[]events.ID{events.ID(3)},
-					nil,
-					nil,
-					nil,
-					events.Capabilities{},
-				),
+			deps: map[events.ID]events.DependencyStrategy{
+				events.ID(4): events.NewDependencyStrategy(
+					events.NewDependencies(
+						[]events.ID{events.ID(3)},
+						nil,
+						nil,
+						nil,
+						events.Capabilities{},
+					)),
+				events.ID(1): events.NewDependencyStrategy(
+					events.NewDependencies(
+						[]events.ID{events.ID(2)},
+						nil,
+						[]events.Probe{
+							events.NewProbe(probes.SchedProcessExec, true),
+							events.NewProbe(probes.SchedProcessExit, true),
+						},
+						nil,
+						events.Capabilities{},
+					)),
+				events.ID(2): events.NewDependencyStrategy(
+					events.NewDependencies(
+						[]events.ID{events.ID(3)},
+						nil,
+						nil,
+						nil,
+						events.Capabilities{},
+					)),
 				events.ID(3): {},
 			},
 			expectedRemovedEvents: []events.ID{events.ID(1), events.ID(2)},
@@ -372,7 +384,7 @@ func TestManager_RemoveEvent(t *testing.T) {
 				if slices.Contains(testCase.expectedRemovedEvents, id) {
 					continue
 				}
-				for _, probe := range expDep.GetProbes() {
+				for _, probe := range expDep.GetPrimaryDependencies().GetProbes() {
 					expectedDepProbes[probe.GetHandle()] = append(expectedDepProbes[probe.GetHandle()], id)
 				}
 			}
@@ -411,13 +423,13 @@ func TestManager_UnselectEvent(t *testing.T) {
 		name                  string
 		preAddedEvents        []events.ID
 		eventToAdd            events.ID
-		deps                  map[events.ID]events.Dependencies
+		deps                  map[events.ID]events.DependencyStrategy
 		expectedRemovedEvents []events.ID
 	}{
 		{
 			name:       "empty dependency",
 			eventToAdd: events.ID(1),
-			deps: map[events.ID]events.Dependencies{
+			deps: map[events.ID]events.DependencyStrategy{
 				events.ID(1): {},
 			},
 			expectedRemovedEvents: []events.ID{events.ID(1)},
@@ -425,14 +437,15 @@ func TestManager_UnselectEvent(t *testing.T) {
 		{
 			name:       "dependency event",
 			eventToAdd: events.ID(1),
-			deps: map[events.ID]events.Dependencies{
-				events.ID(1): events.NewDependencies(
-					[]events.ID{events.ID(2)},
-					nil,
-					nil,
-					nil,
-					events.Capabilities{},
-				),
+			deps: map[events.ID]events.DependencyStrategy{
+				events.ID(1): events.NewDependencyStrategy(
+					events.NewDependencies(
+						[]events.ID{events.ID(2)},
+						nil,
+						nil,
+						nil,
+						events.Capabilities{},
+					)),
 				events.ID(2): {},
 			},
 			expectedRemovedEvents: []events.ID{events.ID(1), events.ID(2)},
@@ -440,21 +453,23 @@ func TestManager_UnselectEvent(t *testing.T) {
 		{
 			name:       "multi dependency event",
 			eventToAdd: events.ID(1),
-			deps: map[events.ID]events.Dependencies{
-				events.ID(1): events.NewDependencies(
-					[]events.ID{events.ID(2)},
-					nil,
-					nil,
-					nil,
-					events.Capabilities{},
-				),
-				events.ID(2): events.NewDependencies(
-					[]events.ID{events.ID(3)},
-					nil,
-					nil,
-					nil,
-					events.Capabilities{},
-				),
+			deps: map[events.ID]events.DependencyStrategy{
+				events.ID(1): events.NewDependencyStrategy(
+					events.NewDependencies(
+						[]events.ID{events.ID(2)},
+						nil,
+						nil,
+						nil,
+						events.Capabilities{},
+					)),
+				events.ID(2): events.NewDependencyStrategy(
+					events.NewDependencies(
+						[]events.ID{events.ID(3)},
+						nil,
+						nil,
+						nil,
+						events.Capabilities{},
+					)),
 				events.ID(3): {},
 			},
 			expectedRemovedEvents: []events.ID{events.ID(1), events.ID(2), events.ID(3)},
@@ -463,28 +478,31 @@ func TestManager_UnselectEvent(t *testing.T) {
 			name:           "multi dependency event but is dependency",
 			eventToAdd:     events.ID(1),
 			preAddedEvents: []events.ID{events.ID(4)},
-			deps: map[events.ID]events.Dependencies{
-				events.ID(4): events.NewDependencies(
-					[]events.ID{events.ID(1)},
-					nil,
-					nil,
-					nil,
-					events.Capabilities{},
-				),
-				events.ID(1): events.NewDependencies(
-					[]events.ID{events.ID(2)},
-					nil,
-					nil,
-					nil,
-					events.Capabilities{},
-				),
-				events.ID(2): events.NewDependencies(
-					[]events.ID{events.ID(3)},
-					nil,
-					nil,
-					nil,
-					events.Capabilities{},
-				),
+			deps: map[events.ID]events.DependencyStrategy{
+				events.ID(4): events.NewDependencyStrategy(
+					events.NewDependencies(
+						[]events.ID{events.ID(1)},
+						nil,
+						nil,
+						nil,
+						events.Capabilities{},
+					)),
+				events.ID(1): events.NewDependencyStrategy(
+					events.NewDependencies(
+						[]events.ID{events.ID(2)},
+						nil,
+						nil,
+						nil,
+						events.Capabilities{},
+					)),
+				events.ID(2): events.NewDependencyStrategy(
+					events.NewDependencies(
+						[]events.ID{events.ID(3)},
+						nil,
+						nil,
+						nil,
+						events.Capabilities{},
+					)),
 				events.ID(3): {},
 			},
 			expectedRemovedEvents: []events.ID{},
@@ -493,34 +511,37 @@ func TestManager_UnselectEvent(t *testing.T) {
 			name:           "multi dependency event that share dependency",
 			eventToAdd:     events.ID(1),
 			preAddedEvents: []events.ID{events.ID(4)},
-			deps: map[events.ID]events.Dependencies{
-				events.ID(4): events.NewDependencies(
-					[]events.ID{events.ID(3)},
-					nil,
-					[]events.Probe{
-						events.NewProbe(probes.SchedProcessExec, true),
-						events.NewProbe(probes.SchedProcessFork, true),
-					},
-					nil,
-					events.Capabilities{},
-				),
-				events.ID(1): events.NewDependencies(
-					[]events.ID{events.ID(2)},
-					nil,
-					[]events.Probe{
-						events.NewProbe(probes.SchedProcessExec, true),
-						events.NewProbe(probes.SchedProcessExit, true),
-					},
-					nil,
-					events.Capabilities{},
-				),
-				events.ID(2): events.NewDependencies(
-					[]events.ID{events.ID(3)},
-					nil,
-					nil,
-					nil,
-					events.Capabilities{},
-				),
+			deps: map[events.ID]events.DependencyStrategy{
+				events.ID(4): events.NewDependencyStrategy(
+					events.NewDependencies(
+						[]events.ID{events.ID(3)},
+						nil,
+						[]events.Probe{
+							events.NewProbe(probes.SchedProcessExec, true),
+							events.NewProbe(probes.SchedProcessFork, true),
+						},
+						nil,
+						events.Capabilities{},
+					)),
+				events.ID(1): events.NewDependencyStrategy(
+					events.NewDependencies(
+						[]events.ID{events.ID(2)},
+						nil,
+						[]events.Probe{
+							events.NewProbe(probes.SchedProcessExec, true),
+							events.NewProbe(probes.SchedProcessExit, true),
+						},
+						nil,
+						events.Capabilities{},
+					)),
+				events.ID(2): events.NewDependencyStrategy(
+					events.NewDependencies(
+						[]events.ID{events.ID(3)},
+						nil,
+						nil,
+						nil,
+						events.Capabilities{},
+					)),
 				events.ID(3): {},
 			},
 			expectedRemovedEvents: []events.ID{events.ID(1), events.ID(2)},
@@ -572,7 +593,7 @@ func TestManager_FailEvent(t *testing.T) {
 		name                   string
 		preAddedEvents         []events.ID
 		eventToAdd             events.ID
-		deps                   map[events.ID]events.Dependencies
+		deps                   map[events.ID]events.DependencyStrategy
 		expectedRemovedEvents  []events.ID
 		expectedExistingEvents map[events.ID][]events.ID
 		expectEventRemoved     bool
@@ -580,7 +601,7 @@ func TestManager_FailEvent(t *testing.T) {
 		{
 			name:       "no dependencies with no fallback",
 			eventToAdd: events.ID(1),
-			deps: map[events.ID]events.Dependencies{
+			deps: map[events.ID]events.DependencyStrategy{
 				events.ID(1): {},
 			},
 			expectedRemovedEvents:  []events.ID{events.ID(1)},
@@ -590,14 +611,24 @@ func TestManager_FailEvent(t *testing.T) {
 		{
 			name:       "no dependencies with empty fallback",
 			eventToAdd: events.ID(1),
-			deps: map[events.ID]events.Dependencies{
-				events.ID(1): events.NewDependenciesWithFallbacks(
-					[]events.ID{},
-					nil,
-					nil,
-					nil,
-					events.Capabilities{},
-					[]events.Dependencies{{}},
+			deps: map[events.ID]events.DependencyStrategy{
+				events.ID(1): events.NewDependencyStrategyWithFallbacks(
+					events.NewDependencies(
+						[]events.ID{events.ID(2)}, // Primary dependency that will fail
+						nil,
+						nil,
+						nil,
+						events.Capabilities{},
+					),
+					[]events.Dependencies{
+						events.NewDependencies( // Empty fallback
+							[]events.ID{},
+							nil,
+							nil,
+							nil,
+							events.Capabilities{},
+						),
+					},
 				),
 			},
 			expectedRemovedEvents: []events.ID{},
@@ -609,16 +640,18 @@ func TestManager_FailEvent(t *testing.T) {
 		{
 			name:       "no dependencies with fallback with dependencies",
 			eventToAdd: events.ID(1),
-			deps: map[events.ID]events.Dependencies{
-				events.ID(1): events.NewDependenciesWithFallbacks(
-					[]events.ID{},
-					nil,
-					nil,
-					nil,
-					events.Capabilities{},
+			deps: map[events.ID]events.DependencyStrategy{
+				events.ID(1): events.NewDependencyStrategyWithFallbacks(
+					events.NewDependencies(
+						[]events.ID{events.ID(3)}, // Primary dependency that will fail
+						nil,
+						nil,
+						nil,
+						events.Capabilities{},
+					),
 					[]events.Dependencies{
-						events.NewDependencies(
-							[]events.ID{2},
+						events.NewDependencies( // Fallback with dependencies
+							[]events.ID{events.ID(2)},
 							nil,
 							nil,
 							nil,
@@ -638,14 +671,24 @@ func TestManager_FailEvent(t *testing.T) {
 		{
 			name:       "event with dependency with empty dependency fallback",
 			eventToAdd: events.ID(1),
-			deps: map[events.ID]events.Dependencies{
-				events.ID(1): events.NewDependenciesWithFallbacks(
-					[]events.ID{events.ID(2)},
-					nil,
-					nil,
-					nil,
-					events.Capabilities{},
-					[]events.Dependencies{{}},
+			deps: map[events.ID]events.DependencyStrategy{
+				events.ID(1): events.NewDependencyStrategyWithFallbacks(
+					events.NewDependencies(
+						[]events.ID{events.ID(2)}, // Primary dependency
+						nil,
+						nil,
+						nil,
+						events.Capabilities{},
+					),
+					[]events.Dependencies{
+						events.NewDependencies( // Empty fallback
+							[]events.ID{},
+							nil,
+							nil,
+							nil,
+							events.Capabilities{},
+						),
+					},
 				),
 				events.ID(2): {},
 			},
@@ -658,21 +701,23 @@ func TestManager_FailEvent(t *testing.T) {
 		{
 			name:       "event with multiple dependencies without fallback",
 			eventToAdd: events.ID(1),
-			deps: map[events.ID]events.Dependencies{
-				events.ID(1): events.NewDependencies(
-					[]events.ID{events.ID(2)},
-					nil,
-					nil,
-					nil,
-					events.Capabilities{},
-				),
-				events.ID(2): events.NewDependencies(
-					[]events.ID{events.ID(3)},
-					nil,
-					nil,
-					nil,
-					events.Capabilities{},
-				),
+			deps: map[events.ID]events.DependencyStrategy{
+				events.ID(1): events.NewDependencyStrategy(
+					events.NewDependencies(
+						[]events.ID{events.ID(2)},
+						nil,
+						nil,
+						nil,
+						events.Capabilities{},
+					)),
+				events.ID(2): events.NewDependencyStrategy(
+					events.NewDependencies(
+						[]events.ID{events.ID(3)},
+						nil,
+						nil,
+						nil,
+						events.Capabilities{},
+					)),
 				events.ID(3): {},
 			},
 			expectedRemovedEvents:  []events.ID{events.ID(1), events.ID(2), events.ID(3)},
@@ -682,16 +727,18 @@ func TestManager_FailEvent(t *testing.T) {
 		{
 			name:       "event with fallback event with dependencies",
 			eventToAdd: events.ID(1),
-			deps: map[events.ID]events.Dependencies{
-				events.ID(1): events.NewDependenciesWithFallbacks(
-					[]events.ID{},
-					nil,
-					nil,
-					nil,
-					events.Capabilities{},
+			deps: map[events.ID]events.DependencyStrategy{
+				events.ID(1): events.NewDependencyStrategyWithFallbacks(
+					events.NewDependencies(
+						[]events.ID{events.ID(4)}, // Primary dependency that will fail
+						nil,
+						nil,
+						nil,
+						events.Capabilities{},
+					),
 					[]events.Dependencies{
-						events.NewDependencies(
-							[]events.ID{2},
+						events.NewDependencies( // Fallback to event 2
+							[]events.ID{events.ID(2)},
 							nil,
 							nil,
 							nil,
@@ -699,13 +746,14 @@ func TestManager_FailEvent(t *testing.T) {
 						),
 					},
 				),
-				events.ID(2): events.NewDependencies(
-					[]events.ID{events.ID(3)},
-					nil,
-					nil,
-					nil,
-					events.Capabilities{},
-				),
+				events.ID(2): events.NewDependencyStrategy(
+					events.NewDependencies(
+						[]events.ID{events.ID(3)},
+						nil,
+						nil,
+						nil,
+						events.Capabilities{},
+					)),
 				events.ID(3): {},
 			},
 			expectedRemovedEvents: []events.ID{},
@@ -720,28 +768,31 @@ func TestManager_FailEvent(t *testing.T) {
 			name:           "multi levels dependency event with no fallback which is a dependency",
 			eventToAdd:     events.ID(1),
 			preAddedEvents: []events.ID{events.ID(4)},
-			deps: map[events.ID]events.Dependencies{
-				events.ID(4): events.NewDependencies(
-					[]events.ID{events.ID(1)},
-					nil,
-					nil,
-					nil,
-					events.Capabilities{},
-				),
-				events.ID(1): events.NewDependencies(
-					[]events.ID{events.ID(2)},
-					nil,
-					nil,
-					nil,
-					events.Capabilities{},
-				),
-				events.ID(2): events.NewDependencies(
-					[]events.ID{events.ID(3)},
-					nil,
-					nil,
-					nil,
-					events.Capabilities{},
-				),
+			deps: map[events.ID]events.DependencyStrategy{
+				events.ID(4): events.NewDependencyStrategy(
+					events.NewDependencies(
+						[]events.ID{events.ID(1)},
+						nil,
+						nil,
+						nil,
+						events.Capabilities{},
+					)),
+				events.ID(1): events.NewDependencyStrategy(
+					events.NewDependencies(
+						[]events.ID{events.ID(2)},
+						nil,
+						nil,
+						nil,
+						events.Capabilities{},
+					)),
+				events.ID(2): events.NewDependencyStrategy(
+					events.NewDependencies(
+						[]events.ID{events.ID(3)},
+						nil,
+						nil,
+						nil,
+						events.Capabilities{},
+					)),
 				events.ID(3): {},
 			},
 			expectedRemovedEvents:  []events.ID{1, 2, 3, 4},
@@ -752,34 +803,37 @@ func TestManager_FailEvent(t *testing.T) {
 			name:           "multi levels dependency event with no fallback which shares dependency",
 			eventToAdd:     events.ID(1),
 			preAddedEvents: []events.ID{events.ID(4)},
-			deps: map[events.ID]events.Dependencies{
-				events.ID(4): events.NewDependencies(
-					[]events.ID{events.ID(3)},
-					nil,
-					[]events.Probe{
-						events.NewProbe(probes.SchedProcessExec, true),
-						events.NewProbe(probes.SchedProcessFork, true),
-					},
-					nil,
-					events.Capabilities{},
-				),
-				events.ID(1): events.NewDependencies(
-					[]events.ID{events.ID(2)},
-					nil,
-					[]events.Probe{
-						events.NewProbe(probes.SchedProcessExec, true),
-						events.NewProbe(probes.SchedProcessExit, true),
-					},
-					nil,
-					events.Capabilities{},
-				),
-				events.ID(2): events.NewDependencies(
-					[]events.ID{events.ID(3)},
-					nil,
-					nil,
-					nil,
-					events.Capabilities{},
-				),
+			deps: map[events.ID]events.DependencyStrategy{
+				events.ID(4): events.NewDependencyStrategy(
+					events.NewDependencies(
+						[]events.ID{events.ID(3)},
+						nil,
+						[]events.Probe{
+							events.NewProbe(probes.SchedProcessExec, true),
+							events.NewProbe(probes.SchedProcessFork, true),
+						},
+						nil,
+						events.Capabilities{},
+					)),
+				events.ID(1): events.NewDependencyStrategy(
+					events.NewDependencies(
+						[]events.ID{events.ID(2)},
+						nil,
+						[]events.Probe{
+							events.NewProbe(probes.SchedProcessExec, true),
+							events.NewProbe(probes.SchedProcessExit, true),
+						},
+						nil,
+						events.Capabilities{},
+					)),
+				events.ID(2): events.NewDependencyStrategy(
+					events.NewDependencies(
+						[]events.ID{events.ID(3)},
+						nil,
+						nil,
+						nil,
+						events.Capabilities{},
+					)),
 				events.ID(3): {},
 			},
 			expectedRemovedEvents: []events.ID{events.ID(1), events.ID(2)},
@@ -792,16 +846,17 @@ func TestManager_FailEvent(t *testing.T) {
 		{
 			name:       "event with multiple fallbacks available",
 			eventToAdd: events.ID(1),
-			deps: map[events.ID]events.Dependencies{
-				events.ID(1): events.NewDependenciesWithFallbacks(
-					[]events.ID{events.ID(2)}, // Primary dependency
-					nil,
-					nil,
-					nil,
-					events.Capabilities{},
+			deps: map[events.ID]events.DependencyStrategy{
+				events.ID(1): events.NewDependencyStrategyWithFallbacks(
+					events.NewDependencies(
+						[]events.ID{events.ID(2)}, // Primary dependency
+						nil,
+						nil,
+						nil,
+						events.Capabilities{},
+					),
 					[]events.Dependencies{
-						// First fallback - depends on event 3
-						events.NewDependencies(
+						events.NewDependencies( // First fallback
 							[]events.ID{events.ID(3)},
 							nil,
 							nil,
@@ -883,24 +938,24 @@ func TestManager_FailEvent_MultipleFallbacks(t *testing.T) {
 	// Test to demonstrate first fallback failing, second succeeding
 	// We'll use an add watcher to cancel the first fallback dependency
 
-	deps := map[events.ID]events.Dependencies{
-		events.ID(1): events.NewDependenciesWithFallbacks(
-			[]events.ID{events.ID(2)}, // Primary dependency
-			nil,
-			nil,
-			nil,
-			events.Capabilities{},
+	deps := map[events.ID]events.DependencyStrategy{
+		events.ID(1): events.NewDependencyStrategyWithFallbacks(
+			events.NewDependencies(
+				[]events.ID{events.ID(2)}, // Primary dependency
+				nil,
+				nil,
+				nil,
+				events.Capabilities{},
+			),
 			[]events.Dependencies{
-				// First fallback - depends on event 3 (will be cancelled)
-				events.NewDependencies(
+				events.NewDependencies( // First fallback - depends on event 3 (will be cancelled)
 					[]events.ID{events.ID(3)},
 					nil,
 					nil,
 					nil,
 					events.Capabilities{},
 				),
-				// Second fallback - depends on event 4 (will succeed)
-				events.NewDependencies(
+				events.NewDependencies( // Second fallback - depends on event 4 (will succeed)
 					[]events.ID{events.ID(4)},
 					nil,
 					nil,
@@ -966,13 +1021,15 @@ func TestManager_FailEvent_MultipleFallbacks(t *testing.T) {
 
 func TestManager_FailureVsCancellation(t *testing.T) {
 	t.Run("FailNodeAddAction triggers fallbacks", func(t *testing.T) {
-		deps := map[events.ID]events.Dependencies{
-			events.ID(1): events.NewDependenciesWithFallbacks(
-				[]events.ID{events.ID(2)}, // Primary dependency
-				nil,
-				nil,
-				nil,
-				events.Capabilities{},
+		deps := map[events.ID]events.DependencyStrategy{
+			events.ID(1): events.NewDependencyStrategyWithFallbacks(
+				events.NewDependencies(
+					[]events.ID{events.ID(2)}, // Primary dependency
+					nil,
+					nil,
+					nil,
+					events.Capabilities{},
+				),
 				[]events.Dependencies{
 					// Fallback - empty dependencies
 					{},
@@ -1012,15 +1069,15 @@ func TestManager_FailureVsCancellation(t *testing.T) {
 	})
 
 	t.Run("CancelNodeAddAction causes immediate removal", func(t *testing.T) {
-		deps := map[events.ID]events.Dependencies{
-			events.ID(1): events.NewDependenciesWithFallbacks(
-				[]events.ID{events.ID(2)}, // Primary dependency
-				nil,
-				nil,
-				nil,
-				events.Capabilities{},
-				[]events.Dependencies{},
-			),
+		deps := map[events.ID]events.DependencyStrategy{
+			events.ID(1): events.NewDependencyStrategy(
+				events.NewDependencies(
+					[]events.ID{events.ID(2)}, // Primary dependency
+					nil,
+					nil,
+					nil,
+					events.Capabilities{},
+				)),
 			events.ID(2): {},
 		}
 
@@ -1067,13 +1124,15 @@ func TestManager_FailureVsCancellation(t *testing.T) {
 	})
 
 	t.Run("Dependent event uses fallback when dependency is cancelled", func(t *testing.T) {
-		deps := map[events.ID]events.Dependencies{
-			events.ID(1): events.NewDependenciesWithFallbacks(
-				[]events.ID{events.ID(2)}, // Primary dependency
-				nil,
-				nil,
-				nil,
-				events.Capabilities{},
+		deps := map[events.ID]events.DependencyStrategy{
+			events.ID(1): events.NewDependencyStrategyWithFallbacks(
+				events.NewDependencies(
+					[]events.ID{events.ID(2)}, // Primary dependency
+					nil,
+					nil,
+					nil,
+					events.Capabilities{},
+				),
 				[]events.Dependencies{
 					// Fallback - depends on event 3
 					events.NewDependencies(
@@ -1124,13 +1183,15 @@ func TestManager_FailureVsCancellation(t *testing.T) {
 	})
 
 	t.Run("Direct event cancellation removes event instead of using fallbacks", func(t *testing.T) {
-		deps := map[events.ID]events.Dependencies{
-			events.ID(1): events.NewDependenciesWithFallbacks(
-				[]events.ID{events.ID(2)}, // Primary dependency
-				nil,
-				nil,
-				nil,
-				events.Capabilities{},
+		deps := map[events.ID]events.DependencyStrategy{
+			events.ID(1): events.NewDependencyStrategyWithFallbacks(
+				events.NewDependencies(
+					[]events.ID{events.ID(2)}, // Primary dependency
+					nil,
+					nil,
+					nil,
+					events.Capabilities{},
+				),
 				[]events.Dependencies{
 					// Valid fallback - empty dependencies (should work)
 					{},
@@ -1190,13 +1251,15 @@ func TestManager_FailureVsCancellation(t *testing.T) {
 
 func TestManager_FailEvent_ProbeFailures(t *testing.T) {
 	// Test basic FailEvent functionality without mocking
-	deps := map[events.ID]events.Dependencies{
-		events.ID(1): events.NewDependenciesWithFallbacks(
-			[]events.ID{},
-			nil,
-			[]events.Probe{events.NewProbe(probes.SchedProcessExec, true)},
-			nil,
-			events.Capabilities{},
+	deps := map[events.ID]events.DependencyStrategy{
+		events.ID(1): events.NewDependencyStrategyWithFallbacks(
+			events.NewDependencies(
+				[]events.ID{},
+				nil,
+				[]events.Probe{events.NewProbe(probes.SchedProcessExec, true)},
+				nil,
+				events.Capabilities{},
+			),
 			[]events.Dependencies{
 				events.NewDependencies(
 					[]events.ID{},
@@ -1206,8 +1269,7 @@ func TestManager_FailEvent_ProbeFailures(t *testing.T) {
 					events.Capabilities{},
 				),
 			},
-		),
-	}
+		)}
 
 	m := NewDependenciesManager(getTestDependenciesFunc(deps))
 
@@ -1237,7 +1299,7 @@ func TestManager_FailEvent_ProbeFailures(t *testing.T) {
 }
 
 func TestManager_FailEvent_NonExistentEvent(t *testing.T) {
-	m := NewDependenciesManager(getTestDependenciesFunc(map[events.ID]events.Dependencies{}))
+	m := NewDependenciesManager(getTestDependenciesFunc(map[events.ID]events.DependencyStrategy{}))
 
 	// Try to fail an event that doesn't exist
 	removed, err := m.FailEvent(events.ID(999))
@@ -1246,14 +1308,15 @@ func TestManager_FailEvent_NonExistentEvent(t *testing.T) {
 }
 
 func TestManager_FailEvent_EventWithoutFallbacks(t *testing.T) {
-	deps := map[events.ID]events.Dependencies{
-		events.ID(1): events.NewDependencies(
-			[]events.ID{events.ID(2)},
-			nil,
-			[]events.Probe{events.NewProbe(probes.SchedProcessExec, true)},
-			nil,
-			events.Capabilities{},
-		),
+	deps := map[events.ID]events.DependencyStrategy{
+		events.ID(1): events.NewDependencyStrategy(
+			events.NewDependencies(
+				[]events.ID{events.ID(2)},
+				nil,
+				[]events.Probe{events.NewProbe(probes.SchedProcessExec, true)},
+				nil,
+				events.Capabilities{},
+			)),
 		events.ID(2): {},
 	}
 

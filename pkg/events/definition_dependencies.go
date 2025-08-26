@@ -6,15 +6,52 @@ import (
 	"github.com/aquasecurity/tracee/pkg/ebpf/probes"
 )
 
-// Dependencies is a struct that holds all the dependencies of a given event definition.
+// DependencyStrategy implements the Strategy pattern for event dependency resolution.
+// It encapsulates multiple approaches to satisfying event requirements: a primary
+// dependency configuration followed by an ordered sequence of fallback alternatives.
+// Fallbacks are attempted sequentially in the order they appear until one succeeds
+// or all options are exhausted, providing graceful degradation of functionality.
+type DependencyStrategy struct {
+	primary   Dependencies
+	fallbacks []Dependencies
+}
+
+func NewDependencyStrategy(dependencies Dependencies) DependencyStrategy {
+	return DependencyStrategy{primary: dependencies, fallbacks: nil}
+}
+
+func NewDependencyStrategyWithFallbacks(dependencies Dependencies, fallbacks []Dependencies) DependencyStrategy {
+	return DependencyStrategy{primary: dependencies, fallbacks: fallbacks}
+}
+
+func (e DependencyStrategy) GetPrimaryDependencies() Dependencies {
+	return e.primary
+}
+
+func (e DependencyStrategy) GetFallbackDependencies() []Dependencies {
+	return e.fallbacks
+}
+
+func (e DependencyStrategy) GetFallbackAt(index int) (Dependencies, bool) {
+	if index < 0 || index >= len(e.fallbacks) {
+		return Dependencies{}, false
+	}
+	return e.fallbacks[index], true
+}
+
+func (e DependencyStrategy) GetFallbacks() []Dependencies {
+	return e.fallbacks
+}
+
+// Dependencies represents a cohesive set of runtime requirements for event execution.
+// It encapsulates all necessary system resources, kernel interfaces, and security
+// constraints required for successful event operation.
 type Dependencies struct {
 	ids          []ID
 	kSymbols     []KSymbol
 	probes       []Probe
 	tailCalls    []TailCall
 	capabilities Capabilities
-	// fallbacks contains alternative dependency sets to try if the primary dependencies fail
-	fallbacks []Dependencies
 }
 
 func NewDependencies(
@@ -30,26 +67,6 @@ func NewDependencies(
 		probes:       givenProbes,
 		tailCalls:    givenTailCalls,
 		capabilities: givenCapabilities,
-		fallbacks:    nil,
-	}
-}
-
-// NewDependenciesWithFallbacks creates a Dependencies struct with fallback dependency sets
-func NewDependenciesWithFallbacks(
-	givenIDs []ID,
-	givenkSymbols []KSymbol,
-	givenProbes []Probe,
-	givenTailCalls []TailCall,
-	givenCapabilities Capabilities,
-	fallbacks []Dependencies,
-) Dependencies {
-	return Dependencies{
-		ids:          givenIDs,
-		kSymbols:     givenkSymbols,
-		probes:       givenProbes,
-		tailCalls:    givenTailCalls,
-		capabilities: givenCapabilities,
-		fallbacks:    fallbacks,
 	}
 }
 
@@ -93,32 +110,6 @@ func (d Dependencies) GetTailCalls() []TailCall {
 
 func (d Dependencies) GetCapabilities() Capabilities {
 	return d.capabilities
-}
-
-// GetFallbacks returns the fallback dependency sets
-func (d Dependencies) GetFallbacks() []Dependencies {
-	if d.fallbacks == nil {
-		return []Dependencies{}
-	}
-	return d.fallbacks
-}
-
-// HasFallbacks returns true if this Dependencies has fallback sets defined
-func (d Dependencies) HasFallbacks() bool {
-	return len(d.fallbacks) > 0
-}
-
-// GetFallbackAt returns the fallback dependency set at the specified index
-func (d Dependencies) GetFallbackAt(index int) (Dependencies, bool) {
-	if index < 0 || index >= len(d.fallbacks) {
-		return Dependencies{}, false
-	}
-	return d.fallbacks[index], true
-}
-
-// AddFallback adds a fallback dependency set to existing dependencies
-func (d *Dependencies) AddFallback(fallback Dependencies) {
-	d.fallbacks = append(d.fallbacks, fallback)
 }
 
 // Probe

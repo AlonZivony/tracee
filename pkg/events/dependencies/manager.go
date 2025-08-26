@@ -30,7 +30,7 @@ type Manager struct {
 	probes             map[probes.Handle]*ProbeNode
 	onAdd              map[NodeType][]func(node interface{}) []Action
 	onRemove           map[NodeType][]func(node interface{}) []Action
-	dependenciesGetter func(events.ID) events.Dependencies
+	dependenciesGetter func(events.ID) events.DependencyStrategy
 	// Track failed probes and events to prevent issues such as incorrect fallback handling,
 	// duplicate processing, or inconsistent state when dependencies are shared between events.
 	failedProbes map[probes.Handle]struct{}
@@ -39,7 +39,7 @@ type Manager struct {
 	processingEvents map[events.ID]struct{} // Track events currently being processed - safeguard against recursive calls
 }
 
-func NewDependenciesManager(dependenciesGetter func(events.ID) events.Dependencies) *Manager {
+func NewDependenciesManager(dependenciesGetter func(events.ID) events.DependencyStrategy) *Manager {
 	return &Manager{
 		mu:                 sync.RWMutex{},
 		events:             make(map[events.ID]*EventNode),
